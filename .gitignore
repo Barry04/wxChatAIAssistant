@@ -1,0 +1,28 @@
+# Python and test artifacts
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+
+# Frontend dependencies and build results
+frontend/node_modules/
+frontend/dist/
+
+# Local application data: chat records, contacts, drafts, screenshots, settings and API keys
+data/
+private/
+# Personal style skills distilled from local chat history
+skill/
+
+# Locally downloaded tools, logs, and editor-specific settings
+.runtime/
+.claude/
+@AutomationLog.txt
+*.log
+
+# Local environment files and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key

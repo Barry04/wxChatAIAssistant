@@ -1,0 +1,48 @@
+levels:
+  L0:
+    label: 普通聊天
+    action: draft
+    keywords: []
+  L1:
+    label: 需要核实事实
+    action: confirm
+    keywords:
+      - 明天
+      - 几点
+      - 答应
+      - 一定
+      - 行程
+      - 加班
+      - 开会
+      - 见面
+  L2:
+    label: 敏感关系场景
+    action: confirm
+    keywords:
+      - 分手
+      - 离婚
+      - 绝交
+      - 吵架
+      - 不想理你
+      - 滚
+      - 算了
+      - 警察局
+      - 报警
+      - 动手
+      - 打架
+      - 被打
+      - 打人
+      - 威胁
+  L3:
+    label: 禁止自动代答
+    action: block
+    keywords:
+      - 转账
+      - 借钱
+      - 验证码
+      - 密码
+      - 银行卡
+      - 医院
+      - 吃药
+      - 律师
+      - 合同

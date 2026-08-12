@@ -1,0 +1,57 @@
+# 命令
+
+所有命令均应在项目根目录 `F:\wxChatAssistant` 执行。
+
+## 后端运行
+
+```powershell
+.\run.ps1
+```
+
+脚本会使用 `.venv\Scripts\python.exe`，并启动：
+
+```text
+uvicorn app.main:app --host 127.0.0.1 --port 8787
+```
+
+服务地址为 `http://127.0.0.1:8787`。若虚拟环境不存在，脚本会直接报错，不会自动安装依赖。
+
+## Python 测试
+
+若虚拟环境尚未安装依赖，先执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+再执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest
+```
+
+当前测试位于 `tests/test_services.py`，覆盖场景识别、风险分级、纯文本导入和演示模式生成。异步服务测试通过标准库 `asyncio.run` 执行，不依赖额外 pytest 异步插件。
+
+## 前端开发与构建
+
+```powershell
+Set-Location frontend
+npm install
+npm run dev
+```
+
+```powershell
+Set-Location frontend
+npm run build
+```
+
+前端独立开发服务器默认由 Vite 决定端口；后端 CORS 当前允许 `127.0.0.1:5173` 与 `localhost:5173`。构建完成后，后端会托管 `frontend/dist`。
+
+## 前端检查
+
+```powershell
+Set-Location frontend
+npm run lint
+```
+
+当前前端仍是模板页面，执行结果只能说明模板代码的静态检查状态，不能代表业务流程已验证。

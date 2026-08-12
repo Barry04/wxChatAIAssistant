@@ -1,0 +1,45 @@
+:root {
+  font-family:
+    Inter, "Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif;
+  color: #202522;
+  background: #f4f6f5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: #f4f6f5;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  letter-spacing: 0;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #1e8f68;
+  outline-offset: 2px;
+}
+
+::selection {
+  color: #fff;
+  background: #1e8f68;
+}

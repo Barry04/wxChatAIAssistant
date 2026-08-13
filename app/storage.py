@@ -20,6 +20,7 @@ PROFILE_FILE = DATA_DIR / "profile.json"
 CONFIG_DB_FILE = DATA_DIR / "config.sqlite3"
 AUTOMATION_STATE_FILE = DATA_DIR / "automation-state.json"
 AUTOMATION_EVENTS_FILE = DATA_DIR / "automation-events.jsonl"
+MODEL_CALLS_FILE = DATA_DIR / "model-calls.jsonl"
 WECHAT_COVERAGE_FILE = DATA_DIR / "wechat-read-coverage.json"
 SELF_SKILL_DIR = DATA_DIR / "self-skill"
 SELF_MEMORY_FILE = SELF_SKILL_DIR / "self.md"
@@ -162,6 +163,8 @@ def ensure_storage() -> None:
         write_json(AUTOMATION_STATE_FILE, {"cursors": {}, "last_run_at": ""})
     if not AUTOMATION_EVENTS_FILE.exists():
         AUTOMATION_EVENTS_FILE.touch()
+    if not MODEL_CALLS_FILE.exists():
+        MODEL_CALLS_FILE.touch()
     SELF_SKILL_DIR.mkdir(parents=True, exist_ok=True)
     CONTACT_SKILL_DIR.mkdir(parents=True, exist_ok=True)
 

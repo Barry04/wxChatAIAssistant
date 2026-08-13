@@ -56,6 +56,29 @@
 3. 为收到的消息生成候选回复，选择或编辑后再发送。
 4. 如需使用监听功能，先只启用 dry-run，确认行为符合预期后再考虑开启真实发送。
 
+## 查看调用日志
+
+- 模型调用日志：`data/model-calls.jsonl`。只记录调用时间、提供方、模型、接口主机、耗时、HTTP 状态和脱敏错误，不记录 API Key、提示词、聊天正文或模型回复。
+- 自动回复日志：`data/automation-events.jsonl`。记录每次草稿生成、风险判定、发送动作与发送验证结果。
+- 自动回复状态：`data/automation-state.json`。记录游标、暂停状态、等待时间和待确认队列。
+- 服务控制台日志：运行 `./run.ps1` 的 PowerShell 窗口会显示 Uvicorn 请求与异常日志。
+
+实时查看最近日志：
+
+```powershell
+Get-Content .\data\model-calls.jsonl -Tail 20 -Wait
+Get-Content .\data\automation-events.jsonl -Tail 20 -Wait
+```
+
+服务运行时也可以访问：
+
+```text
+GET http://127.0.0.1:8787/api/logs/model-calls?limit=50
+GET http://127.0.0.1:8787/api/automation/events?limit=50
+```
+
+Windows 微信 4.1 的主界面是自绘窗口。真实发送会在选中搜索结果后，使用系统内置的简体中文 OCR 只识别右侧顶部标题栏；标题与目标联系人不一致时会中止发送。OCR 临时图像在识别结束后立即删除，不采集消息列表或输入区。
+
 ## 隐私与安全
 
 本项目以本地优先为原则。聊天记录、联系人、表达画像、自动化事件、本机微信配置、截图、日志和 API Key 都只应保存在你的电脑上。

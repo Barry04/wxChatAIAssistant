@@ -16,6 +16,28 @@ uvicorn app.main:app --host 127.0.0.1 --port 8787
 
 服务地址为 `http://127.0.0.1:8787`。若虚拟环境不存在，脚本会直接报错，不会自动安装依赖。
 
+## 日志
+
+模型调用元数据写入 `data/model-calls.jsonl`，自动回复动作写入
+`data/automation-events.jsonl`。两者均可用 PowerShell 实时查看：
+
+```powershell
+Get-Content .\data\model-calls.jsonl -Tail 20 -Wait
+Get-Content .\data\automation-events.jsonl -Tail 20 -Wait
+```
+
+HTTP 查看入口：
+
+```text
+GET /api/logs/model-calls?limit=50
+GET /api/automation/events?limit=50
+```
+
+模型调用日志不保存 API Key、提示词、聊天正文或模型回复。
+
+Windows 微信 4.1 自绘界面的发送前会话验证由
+`tools/read_wechat_title.ps1` 调用系统内置简体中文 OCR 完成。脚本只截取右侧顶部标题栏，临时图像识别后立即删除。
+
 ## Python 测试
 
 若虚拟环境尚未安装依赖，先执行：

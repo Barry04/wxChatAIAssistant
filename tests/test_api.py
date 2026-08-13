@@ -18,6 +18,37 @@ def _disable_worker(monkeypatch):
     monkeypatch.setattr(main_module.AUTOMATION_WORKER, "stop", lambda: None)
 
 
+def test_model_calls_route_returns_recent_calls_without_sensitive_content(
+    monkeypatch, tmp_path
+):
+    log_file = tmp_path / "model-calls.jsonl"
+    log_file.write_text(
+        '{"created_at":"2026-08-13T00:00:00+00:00","provider":"openai-compatible",'
+        '"model":"example","endpoint":"api.example.com","status":"success",'
+        '"http_status":200,"duration_ms":321,"error":""}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(main_module, "MODEL_CALLS_FILE", log_file, raising=False)
+    _disable_worker(monkeypatch)
+
+    with TestClient(main_module.app) as client:
+        response = client.get("/api/logs/model-calls?limit=20")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "created_at": "2026-08-13T00:00:00+00:00",
+            "provider": "openai-compatible",
+            "model": "example",
+            "endpoint": "api.example.com",
+            "status": "success",
+            "http_status": 200,
+            "duration_ms": 321,
+            "error": "",
+        }
+    ]
+
+
 def test_style_presets_route_and_contact_validation(monkeypatch, tmp_path):
     _patch_config_db(monkeypatch, tmp_path)
     monkeypatch.setattr(

@@ -2,12 +2,55 @@ from __future__ import annotations
 
 import json
 import re
+import time
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 
 from app.models import RuntimeSettings
+from app.storage import MODEL_CALLS_FILE, append_jsonl
+
+
+def _record_model_call(
+    settings: RuntimeSettings,
+    *,
+    started_at: float,
+    status: str,
+    http_status: int | None = None,
+    error: str = "",
+) -> None:
+    """Persist request metadata without prompts, responses, credentials, or paths."""
+    hostname = (urlparse(settings.base_url).hostname or "local").lower()
+    append_jsonl(
+        MODEL_CALLS_FILE,
+        {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "provider": settings.provider,
+            "model": settings.model,
+            "endpoint": hostname,
+            "status": status,
+            "http_status": http_status,
+            "duration_ms": max(0, round((time.perf_counter() - started_at) * 1000)),
+            "error": error[:500],
+        },
+    )
+
+
+def _safe_error_summary(exc: Exception, http_status: int | None = None) -> str:
+    if http_status is not None:
+        return f"http_error:{http_status}"
+    if isinstance(exc, httpx.TimeoutException):
+        return "request_timeout"
+    if isinstance(exc, httpx.RequestError):
+        return f"request_error:{type(exc).__name__}"
+    message = str(exc)
+    if message.startswith("模型服务返回 HTTP "):
+        return message[:500]
+    if message == "模型服务响应缺少 choices[0].message.content":
+        return message
+    return type(exc).__name__
 
 
 def _response_error(response: httpx.Response) -> RuntimeError:
@@ -70,42 +113,65 @@ async def chat_completion(
         raise RuntimeError("demo provider does not call external models")
 
     timeout = httpx.Timeout(45.0)
+    started_at = time.perf_counter()
     # Windows user-level proxy settings can be stale even when WinHTTP is direct.
     # Model endpoints should use the explicitly configured base URL directly.
-    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-        if settings.provider == "ollama":
-            payload: dict[str, Any] = {
-                "model": settings.model,
-                "stream": False,
-                "messages": [{"role": "user", "content": prompt}],
-            }
-            if force_json:
-                payload["format"] = "json"
-            response = await client.post(
-                settings.base_url.rstrip("/") + "/api/chat",
-                json=payload,
-            )
-            if response.is_error:
-                raise _response_error(response)
-            return response.json()["message"]["content"]
-
-        headers = {"Content-Type": "application/json"}
-        if settings.api_key:
-            headers["Authorization"] = f"Bearer {settings.api_key}"
-        response = await client.post(
-            settings.base_url.rstrip("/") + "/chat/completions",
-            headers=headers,
-            json=_openai_compatible_payload(
-                settings,
-                prompt,
-                temperature=temperature,
-                force_json=force_json,
+    try:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+            if settings.provider == "ollama":
+                payload: dict[str, Any] = {
+                    "model": settings.model,
+                    "stream": False,
+                    "messages": [{"role": "user", "content": prompt}],
+                }
+                if force_json:
+                    payload["format"] = "json"
+                response = await client.post(
+                    settings.base_url.rstrip("/") + "/api/chat",
+                    json=payload,
+                )
+                if response.is_error:
+                    raise _response_error(response)
+                content = response.json()["message"]["content"]
+            else:
+                headers = {"Content-Type": "application/json"}
+                if settings.api_key:
+                    headers["Authorization"] = f"Bearer {settings.api_key}"
+                response = await client.post(
+                    settings.base_url.rstrip("/") + "/chat/completions",
+                    headers=headers,
+                    json=_openai_compatible_payload(
+                        settings,
+                        prompt,
+                        temperature=temperature,
+                        force_json=force_json,
+                    ),
+                )
+                if response.is_error:
+                    raise _response_error(response)
+                payload = response.json()
+                try:
+                    content = payload["choices"][0]["message"]["content"]
+                except (KeyError, IndexError, TypeError) as exc:
+                    raise RuntimeError(
+                        "模型服务响应缺少 choices[0].message.content"
+                    ) from exc
+        _record_model_call(
+            settings,
+            started_at=started_at,
+            status="success",
+            http_status=response.status_code,
+        )
+        return content
+    except Exception as exc:
+        _record_model_call(
+            settings,
+            started_at=started_at,
+            status="error",
+            http_status=getattr(locals().get("response"), "status_code", None),
+            error=_safe_error_summary(
+                exc,
+                getattr(locals().get("response"), "status_code", None),
             ),
         )
-        if response.is_error:
-            raise _response_error(response)
-        payload = response.json()
-        try:
-            return payload["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise RuntimeError("模型服务响应缺少 choices[0].message.content") from exc
+        raise

@@ -507,6 +507,14 @@ class AutomationWorker:
                     if not incoming:
                         reply_waits.pop(talker, None)
                         cursors[talker] = newest_id
+                        stale_retry_keys = [
+                            key
+                            for key in set(candidate_cache) | set(send_failures)
+                            if key.startswith(f"{talker}:")
+                        ]
+                        for key in stale_retry_keys:
+                            candidate_cache.pop(key, None)
+                            send_failures.pop(key, None)
                         actions.append(
                             {
                                 "contact_id": contact.contact_id,
@@ -850,6 +858,12 @@ class AutomationWorker:
             if not contact_data:
                 item["last_error"] = "联系人不存在"
                 return {"ok": False, "error": item["last_error"]}
+            current_talker = str(contact_data.get("wechat_username") or "").strip()
+            pending_talker = str(item.get("talker") or "").strip()
+            if not current_talker or current_talker != pending_talker:
+                item["last_error"] = "联系人微信会话绑定已变更，请重新生成待确认项"
+                write_json(AUTOMATION_STATE_FILE, state)
+                return {"ok": False, "error": "contact_binding_changed"}
 
             candidate = text.strip()
             item["attempts"] = int(item.get("attempts") or 0) + 1

@@ -54,6 +54,7 @@ from .storage import (
     read_jsonl,
     write_json,
     AUTOMATION_EVENTS_FILE,
+    MODEL_CALLS_FILE,
     SELF_SKILL_META_FILE,
     WECHAT_COVERAGE_FILE,
     WECHAT_RAW_MESSAGES_FILE,
@@ -592,7 +593,12 @@ async def automation_confirm(
     result = await AUTOMATION_WORKER.confirm(confirmation_id, payload.text)
     if not result.get("ok"):
         error = result.get("error")
-        if error in {"dry_run_enabled", "real_send_not_acknowledged", "cycle_already_running"}:
+        if error in {
+            "dry_run_enabled",
+            "real_send_not_acknowledged",
+            "cycle_already_running",
+            "contact_binding_changed",
+        }:
             status_code = 409
         elif error == "confirmation_not_found":
             status_code = 404
@@ -634,6 +640,12 @@ def reset_automation_cursors(contact_id: str | None = None) -> dict:
 @app.get("/api/automation/events")
 def automation_events(limit: int = 50) -> list[dict]:
     return read_jsonl(AUTOMATION_EVENTS_FILE)[-max(1, min(limit, 200)) :]
+
+
+@app.get("/api/logs/model-calls")
+def model_call_logs(limit: int = 50) -> list[dict]:
+    """Return redacted model-call metadata; prompts and responses are never logged."""
+    return read_jsonl(MODEL_CALLS_FILE)[-max(1, min(limit, 200)) :]
 
 
 @app.post("/api/automation/run-once")

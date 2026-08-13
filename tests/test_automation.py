@@ -786,6 +786,69 @@ def test_failed_send_reuses_candidate_and_enters_backoff(monkeypatch, tmp_path):
     assert state["send_failures"]["wxid-a:6"]["attempts"] == 1
 
 
+def test_retry_detects_already_sent_candidate_before_reopening_wechat(
+    monkeypatch, tmp_path
+):
+    module, state_file, _ = _configure(
+        monkeypatch,
+        tmp_path,
+        cursor=5,
+        dry_run=False,
+        acknowledged=True,
+        provider="ollama",
+    )
+    _update_auto_reply(enabled=True)
+    state_file.write_text(
+        json.dumps(
+            {
+                "cursors": {"wxid-a": 5},
+                "candidate_cache": {
+                    "wxid-a:6": {
+                        "risk": {"level": "L0", "label": "L0", "matched": []},
+                        "candidates": [{"text": "candidate reply"}],
+                    }
+                },
+                "send_failures": {
+                    "wxid-a:6": {
+                        "attempts": 1,
+                        "last_error": "verification timeout",
+                        "retry_after": 0,
+                    }
+                },
+                "reply_waits": {
+                    "wxid-a": {"takeover_ready": True, "started_at": 0}
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        module,
+        "get_timeline",
+        lambda *_args: {
+            "messages": [
+                _message(6, False, "incoming"),
+                _message(7, True, "candidate reply"),
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "send_wechat_message",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("an already-sent candidate must not be sent again")
+        ),
+    )
+
+    result = asyncio.run(AutomationWorker(lambda: "").run_once())
+
+    assert result["actions"][0]["action"] == "user_replied"
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert state["cursors"]["wxid-a"] == 7
+    assert "wxid-a:6" not in state.get("send_failures", {})
+    assert "wxid-a:6" not in state.get("candidate_cache", {})
+
+
 def test_verify_sent_message_retries_after_timeline_error(monkeypatch):
     import app.automation as module
 
@@ -939,6 +1002,36 @@ def test_confirmation_sends_and_verifies(monkeypatch, tmp_path):
 
     assert result["ok"] is True
     assert json.loads(state_file.read_text())["pending_confirmations"] == []
+
+
+def test_confirmation_rejects_stale_talker_binding(monkeypatch, tmp_path):
+    module, state_file, _ = _configure(
+        monkeypatch, tmp_path, cursor=5, acknowledged=True
+    )
+    monkeypatch.setattr(
+        module,
+        "get_timeline",
+        lambda *_args: {"messages": [_message(6, False, "incoming")]},
+    )
+    asyncio.run(AutomationWorker(lambda: "").run_once())
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    confirmation_id = state["pending_confirmations"][0]["id"]
+    _update_auto_reply(dry_run=False)
+    _update_first_contact(wechat_username="wxid-changed")
+    monkeypatch.setattr(
+        module,
+        "send_wechat_message",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("stale talker confirmation must not send")
+        ),
+    )
+
+    result = asyncio.run(
+        AutomationWorker(lambda: "").confirm(confirmation_id, "edited reply")
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "contact_binding_changed"
 
 
 def test_confirmation_waits_for_running_cycle(monkeypatch, tmp_path):

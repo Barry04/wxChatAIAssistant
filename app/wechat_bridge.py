@@ -1,7 +1,11 @@
 from dataclasses import asdict, dataclass
 from contextlib import nullcontext
 import ctypes
+import json
+import re
+import subprocess
 import time
+from pathlib import Path
 from typing import Any
 
 
@@ -13,6 +17,7 @@ except ImportError:
 
 _CHAT_IDENTITIES: dict[str, str] = {}
 _WEB_SEARCH_MARKERS = ("搜一搜", "网络搜索", "网页搜索", "搜索网络", "web search")
+_TITLE_OCR_SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "read_wechat_title.ps1"
 
 
 def register_chat_identity(chat_name: str, talker: str) -> None:
@@ -363,6 +368,44 @@ def _window_point(window, x_ratio: float, y_ratio: float) -> tuple[int, int]:
     )
 
 
+def _normalized_title(value: str) -> str:
+    return re.sub(r"\s+", "", str(value or "")).strip()
+
+
+def _read_rendered_chat_title(window) -> str:
+    handle = int(getattr(window, "NativeWindowHandle", 0) or 0)
+    if handle <= 0 or not _TITLE_OCR_SCRIPT.exists():
+        return ""
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    completed = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(_TITLE_OCR_SCRIPT),
+            "-WindowHandle",
+            str(handle),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8-sig",
+        errors="replace",
+        timeout=10,
+        creationflags=creationflags,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return ""
+    try:
+        payload = json.loads(completed.stdout.strip())
+    except json.JSONDecodeError:
+        return ""
+    lines = payload.get("lines") if isinstance(payload, dict) else []
+    return str(lines[0] if lines else payload.get("text") or "").strip()
+
+
 def _send_via_rendered_window(window, chat_name: str, text: str) -> dict[str, Any]:
     """Use guarded coordinates for WeChat's self-rendered MMUI surface."""
     if not _leave_web_search_page(window):
@@ -388,10 +431,23 @@ def _send_via_rendered_window(window, chat_name: str, text: str) -> dict[str, An
     if _find_web_search_document(window) is not None:
         raise RuntimeError("聊天搜索未选中会话，微信已进入搜一搜页面，已中止发送")
 
+    opened_title = _read_rendered_chat_title(window)
+    if _normalized_title(opened_title) != _normalized_title(chat_name):
+        raise RuntimeError(
+            f"目标会话 OCR 标题验证失败：期望“{chat_name}”，"
+            f"实际“{opened_title or '未识别'}”，已中止发送"
+        )
+
     _click_screen_point(*editor_point)
     _select_all()
     _paste_text(text)
     time.sleep(0.2)
+    final_title = _read_rendered_chat_title(window)
+    if _normalized_title(final_title) != _normalized_title(chat_name):
+        raise RuntimeError(
+            f"发送前 OCR 标题复验失败：期望“{chat_name}”，"
+            f"实际“{final_title or '未识别'}”，已中止发送"
+        )
     # The rendered editor sometimes consumes VK_RETURN without sending.
     # Clicking the visible send button is more deterministic for this surface.
     send_point = _window_point(window, 0.965, 0.952)
@@ -402,29 +458,34 @@ def _send_via_rendered_window(window, chat_name: str, text: str) -> dict[str, An
         "chat_name": chat_name,
         "stable_talker": _CHAT_IDENTITIES.get(chat_name.strip(), ""),
         "selection": "rendered_window_coordinate",
+        "target_verified": True,
+        "title_verification": "windows_ocr",
     }
 
 
-def _find_wechat_window():
+def _find_wechat_window(*, attempts: int = 3, retry_interval: float = 0.15):
     if auto is None:
         return None
-    root = auto.GetRootControl()
-    candidates = []
-    for window in root.GetChildren():
-        class_name = window.ClassName or ""
-        name = _decode_uia_text(window.Name or "")
-        if class_name == "Qt51514QWindowIcon":
-            priority = 0
-        elif class_name.startswith("mmui::"):
-            priority = 1
-        elif name in {"微信", "WeChat", "Weixin"}:
-            priority = 2
-        else:
-            continue
-        candidates.append((priority, window))
-    if not candidates:
-        return None
-    return min(candidates, key=lambda item: item[0])[1]
+    for attempt in range(max(1, attempts)):
+        root = auto.GetRootControl()
+        candidates = []
+        for window in root.GetChildren():
+            class_name = window.ClassName or ""
+            name = _decode_uia_text(window.Name or "")
+            if class_name == "Qt51514QWindowIcon":
+                priority = 0
+            elif class_name.startswith("mmui::"):
+                priority = 1
+            elif name in {"微信", "WeChat", "Weixin"}:
+                priority = 2
+            else:
+                continue
+            candidates.append((priority, window))
+        if candidates:
+            return min(candidates, key=lambda item: item[0])[1]
+        if attempt < max(1, attempts) - 1:
+            time.sleep(retry_interval)
+    return None
 
 
 def find_wechat_window():
@@ -571,9 +632,12 @@ def send_wechat_message(chat_name: str, text: str) -> dict[str, Any]:
             raise RuntimeError(
                 f"搜索结果均未打开目标会话“{current_chat_name}”，已中止发送"
             )
-        # Coordinates cannot prove which conversation is currently open.
-        # Sending through this fallback could post into an unrelated active
-        # chat, so a verified search result is mandatory for real sending.
+        stable_talker = _CHAT_IDENTITIES.get(chat_name.strip(), "")
+        if stable_talker:
+            return _send_via_rendered_window(window, current_chat_name, text)
+        # The rendered fallback may only be used when the caller registered a
+        # stable talker ID. Automation verifies the resulting message against
+        # that same talker's database timeline before reporting success.
         raise RuntimeError(
             f"无法验证目标会话“{current_chat_name}”，已中止发送以避免误发到当前会话"
         )

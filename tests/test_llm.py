@@ -1,5 +1,10 @@
-import httpx
+import asyncio
+import json
 
+import httpx
+import pytest
+
+import app.agent.llm as llm
 from app.agent.llm import _openai_compatible_payload, _response_error
 from app.models import RuntimeSettings
 
@@ -52,3 +57,134 @@ def test_response_error_keeps_status_and_safe_api_message():
     error = _response_error(response)
 
     assert str(error) == "模型服务返回 HTTP 401: Authentication Fails"
+
+
+def test_chat_completion_writes_redacted_model_call_log(monkeypatch, tmp_path):
+    log_file = tmp_path / "model-calls.jsonl"
+    prompt = "private conversation text"
+    api_key = "secret-api-key"
+
+    class FakeResponse:
+        is_error = False
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": "private reply"}}]}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(llm, "MODEL_CALLS_FILE", log_file, raising=False)
+    monkeypatch.setattr(llm.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+
+    result = asyncio.run(
+        llm.chat_completion(
+            RuntimeSettings(
+                provider="openai-compatible",
+                base_url="https://api.example.com/v1",
+                model="example-model",
+                api_key=api_key,
+            ),
+            prompt,
+        )
+    )
+
+    event = json.loads(log_file.read_text(encoding="utf-8"))
+    assert result == "private reply"
+    assert event["provider"] == "openai-compatible"
+    assert event["model"] == "example-model"
+    assert event["endpoint"] == "api.example.com"
+    assert event["status"] == "success"
+    assert event["http_status"] == 200
+    assert isinstance(event["duration_ms"], int)
+    serialized = json.dumps(event, ensure_ascii=False)
+    assert prompt not in serialized
+    assert api_key not in serialized
+    assert "private reply" not in serialized
+
+
+def test_failed_model_call_log_redacts_prompt_and_api_key(monkeypatch, tmp_path):
+    log_file = tmp_path / "model-calls.jsonl"
+    prompt = "private prompt"
+    api_key = "secret-key"
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            raise RuntimeError(f"failed with {prompt} and {api_key}")
+
+    monkeypatch.setattr(llm, "MODEL_CALLS_FILE", log_file)
+    monkeypatch.setattr(llm.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+
+    with pytest.raises(RuntimeError, match="failed with"):
+        asyncio.run(
+            llm.chat_completion(
+                RuntimeSettings(
+                    provider="openai-compatible",
+                    base_url="https://api.example.com/v1",
+                    model="example-model",
+                    api_key=api_key,
+                ),
+                prompt,
+            )
+        )
+
+    serialized = log_file.read_text(encoding="utf-8")
+    assert '"status": "error"' in serialized
+    assert prompt not in serialized
+    assert api_key not in serialized
+
+
+def test_http_error_log_keeps_status_but_redacts_provider_message(
+    monkeypatch, tmp_path
+):
+    log_file = tmp_path / "model-calls.jsonl"
+    provider_message = "provider echoed private conversation"
+
+    class FakeResponse:
+        is_error = True
+        status_code = 400
+
+        def json(self):
+            return {"error": {"message": provider_message}}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(llm, "MODEL_CALLS_FILE", log_file)
+    monkeypatch.setattr(llm.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+
+    with pytest.raises(RuntimeError, match="HTTP 400"):
+        asyncio.run(
+            llm.chat_completion(
+                RuntimeSettings(
+                    provider="openai-compatible",
+                    base_url="https://api.example.com/v1",
+                    model="example-model",
+                ),
+                "private prompt",
+            )
+        )
+
+    event = json.loads(log_file.read_text(encoding="utf-8"))
+    assert event["error"] == "http_error:400"
+    assert provider_message not in json.dumps(event, ensure_ascii=False)

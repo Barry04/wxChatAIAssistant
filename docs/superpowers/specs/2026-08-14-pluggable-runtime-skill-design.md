@@ -1,7 +1,7 @@
 # 可插拔运行时 Skill 重构设计
 
 日期：2026-08-14
-状态：已确认架构方向，等待书面规格复核
+状态：用户已审核确认，可进入实施
 
 ## 1. 背景与问题
 
@@ -404,7 +404,7 @@ Registry 快照包含：
 ### Wave 2：切换 Consumer
 
 - 新增 `ReplySkillComposer`。
-- 将 `style_node` 攗为只消费 Composer。
+- 将 `style_node` 改为只消费 Composer。
 - 用 Registry 实现新 API，并让旧 `/api/style-presets` 通过兼容映射读取。
 - 保持现有请求和联系人数据可用。
 

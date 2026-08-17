@@ -963,8 +963,310 @@
     min-height: 230px;
   }
 
-  .pending-review-heading {
-    align-items: flex-start;
-    flex-direction: column;
+.pending-review-heading {
+  align-items: flex-start;
+  flex-direction: column;
+}
+}
+
+/* Trace-driven agent flow diagrams */
+.agent-flow-graph,
+.automation-flow {
+  margin: 14px 0;
+  padding: 15px;
+  border: 1px solid rgba(16, 20, 18, 0.09);
+  border-radius: 16px;
+  background: linear-gradient(135deg, #ffffff 0%, #f2f5ef 100%);
+}
+
+.agent-pipeline {
+  container-type: inline-size;
+}
+
+.agent-flow-caption,
+.automation-flow-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 13px;
+}
+
+.agent-flow-caption span,
+.automation-flow-header .eyebrow {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--modern-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.agent-flow-caption strong,
+.automation-flow-header strong {
+  color: var(--modern-ink);
+  font-size: 12px;
+}
+
+.agent-flow-track,
+.automation-flow-track {
+  display: flex;
+  align-items: stretch;
+  gap: 7px;
+}
+
+.agent-flow-segment,
+.automation-flow-segment {
+  min-width: 0;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.agent-flow-node,
+.automation-flow-node,
+.automation-flow-branch {
+  min-width: 0;
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(16, 20, 18, 0.1);
+  border-radius: 12px;
+  color: var(--modern-ink);
+  background: var(--modern-surface);
+}
+
+.agent-flow-node-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--modern-accent-ink);
+  border-radius: 9px;
+  background: var(--modern-accent);
+}
+
+.agent-flow-node-copy,
+.automation-flow-node > span,
+.automation-flow-branch > span {
+  min-width: 0;
+}
+
+.agent-flow-node strong,
+.automation-flow-node strong,
+.automation-flow-branch strong {
+  display: block;
+  font-size: 11px;
+}
+
+.agent-flow-node small,
+.automation-flow-node small,
+.automation-flow-branch small {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--modern-muted);
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-flow-node-time {
+  margin-left: auto;
+  color: var(--modern-muted);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-flow-arrow,
+.automation-flow-arrow {
+  width: 16px;
+  height: 1px;
+  flex: 0 0 auto;
+  position: relative;
+  background: rgba(16, 20, 18, 0.26);
+}
+
+.agent-flow-arrow::after,
+.automation-flow-arrow::after {
+  width: 5px;
+  height: 5px;
+  position: absolute;
+  top: -2px;
+  right: 0;
+  border-top: 1px solid rgba(16, 20, 18, 0.48);
+  border-right: 1px solid rgba(16, 20, 18, 0.48);
+  content: '';
+  transform: rotate(45deg);
+}
+
+.agent-flow-node.status-fallback,
+.agent-flow-node.status-revise {
+  border-color: rgba(181, 118, 23, 0.44);
+  background: #fff9e9;
+}
+
+.agent-flow-node.status-blocked,
+.agent-flow-node.status-block,
+.automation-flow-branch.is-blocked {
+  border-color: rgba(217, 95, 76, 0.52);
+  background: #fff1ed;
+}
+
+.agent-flow-node.is-skipped {
+  opacity: 0.54;
+  border-style: dashed;
+  background: transparent;
+}
+
+.agent-flow-node.is-skipped .agent-flow-node-icon {
+  color: var(--modern-muted);
+  background: var(--modern-soft);
+}
+
+.automation-flow {
+  margin-top: 18px;
+}
+
+.automation-flow-latest {
+  max-width: 44%;
+  overflow: hidden;
+  color: var(--modern-muted);
+  font-size: 10px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-flow-node > svg,
+.automation-flow-branch > svg {
+  flex: 0 0 auto;
+  color: var(--modern-muted);
+}
+
+.automation-flow-node.is-current,
+.automation-flow-branch.is-current {
+  border-color: var(--modern-accent-ink);
+  box-shadow: 0 0 0 3px rgba(184, 243, 107, 0.34);
+}
+
+.automation-flow-node.is-current > svg,
+.automation-flow-branch.is-current > svg {
+  color: var(--modern-accent-ink);
+}
+
+.automation-flow-branches {
+  min-width: 180px;
+  display: grid;
+  flex: 1.1 1 0;
+  gap: 7px;
+  position: relative;
+}
+
+.automation-flow-branches::before {
+  width: 1px;
+  position: absolute;
+  top: 24%;
+  bottom: 24%;
+  left: -7px;
+  background: rgba(16, 20, 18, 0.26);
+  content: '';
+}
+
+.automation-flow-branch {
+  padding: 8px 9px;
+}
+
+@media (max-width: 960px) {
+  .agent-flow-track,
+  .automation-flow-track {
+    flex-wrap: wrap;
+  }
+
+  .agent-flow-segment,
+  .automation-flow-segment {
+    flex-basis: calc(50% - 8px);
+  }
+
+  .automation-flow-branches {
+    flex-basis: calc(50% - 8px);
+  }
+}
+
+@media (max-width: 600px) {
+  .agent-flow-graph,
+  .automation-flow {
+    padding: 12px;
+  }
+
+  .agent-flow-track,
+  .automation-flow-track {
+    display: grid;
+    gap: 6px;
+  }
+
+  .agent-flow-segment,
+  .automation-flow-segment,
+  .automation-flow-branches {
+    display: contents;
+  }
+
+  .agent-flow-arrow,
+  .automation-flow-arrow {
+    width: 1px;
+    height: 13px;
+    margin: 0 0 0 25px;
+  }
+
+  .agent-flow-arrow::after,
+  .automation-flow-arrow::after {
+    top: auto;
+    right: -2px;
+    bottom: 0;
+    transform: rotate(135deg);
+  }
+
+  .agent-flow-node,
+  .automation-flow-node,
+  .automation-flow-branch {
+    min-height: 52px;
+  }
+
+  .automation-flow-branches::before {
+    display: none;
+  }
+}
+
+@container (max-width: 560px) {
+  .agent-flow-track {
+    display: grid;
+    gap: 6px;
+  }
+
+  .agent-flow-segment {
+    display: contents;
+  }
+
+  .agent-flow-arrow {
+    width: 1px;
+    height: 13px;
+    margin: 0 0 0 25px;
+  }
+
+  .agent-flow-arrow::after {
+    top: auto;
+    right: -2px;
+    bottom: 0;
+    transform: rotate(135deg);
+  }
+
+  .agent-flow-node {
+    min-height: 52px;
   }
 }

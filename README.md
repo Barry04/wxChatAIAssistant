@@ -4,7 +4,7 @@
 
 > 默认不发送消息。自动回复默认关闭、默认 dry-run；L1/L2 必须人工确认，L3 直接拦截。
 
-![新版工作台：按联系人管理关系与草稿](docs/images/demo-draft.png)
+![新版工作台：关系化草稿与 Agent 流转图](docs/images/agent-flow-workspace.png)
 
 ## 新版能力
 

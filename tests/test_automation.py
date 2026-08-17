@@ -1,9 +1,9 @@
 import asyncio
 import json
-import asyncio
 import threading
 import time
 
+import app.operator.agent as operator_agent
 from app.automation import AutomationWorker
 from app.models import Contact
 
@@ -131,6 +131,13 @@ def _configure(
 
     monkeypatch.setattr(module, "generate_reply", fake_generate)
     monkeypatch.setattr(module, "sync_timeline_to_memory", lambda *_args: 0)
+    import app.operator.agent as operator_agent
+
+    monkeypatch.setattr(
+        operator_agent,
+        "get_timeline",
+        lambda *args, **kwargs: module.get_timeline(*args, **kwargs),
+    )
     return module, state_file, events_file
 
 
@@ -510,7 +517,7 @@ def test_demo_provider_never_auto_sends(monkeypatch, tmp_path):
         lambda *_args: {"messages": [_message(6, False, "incoming")]},
     )
     monkeypatch.setattr(
-        module,
+        operator_agent,
         "send_wechat_message",
         lambda *_args: (_ for _ in ()).throw(
             AssertionError("demo provider must not auto-send")
@@ -547,7 +554,7 @@ def test_model_fallback_never_auto_sends(monkeypatch, tmp_path):
         lambda *_args: {"messages": [_message(6, False, "incoming")]},
     )
     monkeypatch.setattr(
-        module,
+        operator_agent,
         "send_wechat_message",
         lambda *_args: (_ for _ in ()).throw(
             AssertionError("model fallback must not auto-send")
@@ -579,7 +586,7 @@ def test_dry_run_and_risk_actions(monkeypatch, tmp_path):
             lambda *_args: {"messages": [_message(6, False, "incoming")]},
         )
         monkeypatch.setattr(
-            module,
+            operator_agent,
             "send_wechat_message",
             lambda *_args: (_ for _ in ()).throw(
                 AssertionError("dry-run must not send")
@@ -661,7 +668,7 @@ def test_full_auto_sends_verified_l0_directly(monkeypatch, tmp_path):
     monkeypatch.setattr(module, "get_timeline", lambda *_args: next(timeline_calls))
     sent = []
     monkeypatch.setattr(
-        module,
+        operator_agent,
         "send_wechat_message",
         lambda *args: sent.append(args) or {"sent": True},
     )
@@ -703,7 +710,7 @@ def test_contact_level_override_allows_verified_l1_auto_send(monkeypatch, tmp_pa
     monkeypatch.setattr(module, "get_timeline", lambda *_args: next(timeline_calls))
     sent = []
     monkeypatch.setattr(
-        module,
+        operator_agent,
         "send_wechat_message",
         lambda *args: sent.append(args) or {"sent": True},
     )
@@ -731,7 +738,7 @@ def test_unverified_send_keeps_cursor_for_retry(monkeypatch, tmp_path):
         lambda *_args: {"messages": [_message(6, False, "incoming")]},
     )
     monkeypatch.setattr(
-        module, "send_wechat_message", lambda *_args: {"sent": True}
+        operator_agent, "send_wechat_message", lambda *_args: {"sent": True}
     )
 
     result = asyncio.run(AutomationWorker(lambda: "").run_once())
@@ -767,7 +774,7 @@ def test_failed_send_reuses_candidate_and_enters_backoff(monkeypatch, tmp_path):
 
     monkeypatch.setattr(module, "generate_reply", counted_generate)
     monkeypatch.setattr(
-        module,
+        operator_agent,
         "send_wechat_message",
         lambda *_args: (_ for _ in ()).throw(RuntimeError("send failed")),
     )
@@ -833,7 +840,7 @@ def test_retry_detects_already_sent_candidate_before_reopening_wechat(
         },
     )
     monkeypatch.setattr(
-        module,
+        operator_agent,
         "send_wechat_message",
         lambda *_args: (_ for _ in ()).throw(
             AssertionError("an already-sent candidate must not be sent again")
@@ -850,8 +857,6 @@ def test_retry_detects_already_sent_candidate_before_reopening_wechat(
 
 
 def test_verify_sent_message_retries_after_timeline_error(monkeypatch):
-    import app.automation as module
-
     calls = []
 
     def timeline_with_transient_error(*_args):
@@ -860,10 +865,10 @@ def test_verify_sent_message_retries_after_timeline_error(monkeypatch):
             raise RuntimeError("temporary timeline error")
         return {"messages": [_message(7, True, "candidate reply")]}
 
-    monkeypatch.setattr(module, "get_timeline", timeline_with_transient_error)
-    monkeypatch.setattr(module.time, "sleep", lambda *_args: None)
+    monkeypatch.setattr(operator_agent, "get_timeline", timeline_with_transient_error)
+    monkeypatch.setattr(operator_agent.time, "sleep", lambda *_args: None)
 
-    verified, error = AutomationWorker._verify_sent_message(
+    verified, error = operator_agent.verify_sent_message(
         "wxid-a",
         6,
         "candidate reply",
@@ -895,7 +900,7 @@ def test_send_exception_is_recorded_and_keeps_cursor(monkeypatch, tmp_path):
     def fail_send(*_args):
         raise RuntimeError("send failed")
 
-    monkeypatch.setattr(module, "send_wechat_message", fail_send)
+    monkeypatch.setattr(operator_agent, "send_wechat_message", fail_send)
     result = asyncio.run(AutomationWorker(lambda: "").run_once())
 
     assert result["actions"][0]["action"] == "send_unverified"
@@ -913,7 +918,7 @@ def test_confirmation_is_queued_without_sending(monkeypatch, tmp_path):
     )
     sent = []
     monkeypatch.setattr(
-        module, "send_wechat_message", lambda *args: sent.append(args)
+        operator_agent, "send_wechat_message", lambda *args: sent.append(args)
     )
 
     result = asyncio.run(AutomationWorker(lambda: "").run_once())
@@ -988,7 +993,7 @@ def test_confirmation_sends_and_verifies(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(module, "get_timeline", lambda *_args: next(timeline_calls))
     monkeypatch.setattr(
-        module, "send_wechat_message", lambda *_args: {"sent": True}
+        operator_agent, "send_wechat_message", lambda *_args: {"sent": True}
     )
 
     asyncio.run(AutomationWorker(lambda: "").run_once())
@@ -1019,7 +1024,7 @@ def test_confirmation_rejects_stale_talker_binding(monkeypatch, tmp_path):
     _update_auto_reply(dry_run=False)
     _update_first_contact(wechat_username="wxid-changed")
     monkeypatch.setattr(
-        module,
+        operator_agent,
         "send_wechat_message",
         lambda *_args: (_ for _ in ()).throw(
             AssertionError("stale talker confirmation must not send")
@@ -1046,7 +1051,7 @@ def test_confirmation_waits_for_running_cycle(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(module, "get_timeline", lambda *_args: next(timeline_calls))
     monkeypatch.setattr(
-        module, "send_wechat_message", lambda *_args: {"sent": True}
+        operator_agent, "send_wechat_message", lambda *_args: {"sent": True}
     )
 
     worker = AutomationWorker(lambda: "")
@@ -1101,7 +1106,7 @@ def test_confirmation_verification_failure_keeps_queue(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(module, "get_timeline", lambda *_args: next(timeline_calls))
     monkeypatch.setattr(
-        module, "send_wechat_message", lambda *_args: {"sent": True}
+        operator_agent, "send_wechat_message", lambda *_args: {"sent": True}
     )
 
     asyncio.run(AutomationWorker(lambda: "").run_once())

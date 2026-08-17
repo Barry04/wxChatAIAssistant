@@ -26,7 +26,7 @@ Harness 已于 2026-08-11 按当前代码状态复核；优先相信 `docs/harne
 | architecture | `skills/architecture/SKILL.md` | 调整后端、存储、API 或前端集成边界 |
 | relationship-chat-safety | `skills/relationship-chat-safety/SKILL.md` | 修改草稿生成、风险分级、模型接入、LangGraph 多角色或隐私策略 |
 | langgraph-multi-agent | `docs/superpowers/specs/2026-08-09-langgraph-multi-agent-design.md` | 修改 `app/agent/` 角色图、trace、审核重写边 |
-| wechat-local-auto-reply | `skill/wechat-local-auto-reply/SKILL.md` | 修改微信本地读取、蒸馏、群聊触发、监听、dry-run、游标或自动发送链路 |
+| wechat-local-auto-reply | `skill/wechat-local-auto-reply/SKILL.md` | 修改微信本地读取、蒸馏、群聊触发、监听、dry-run、游标、自动发送链路或 LangSmith 追踪隔离 |
 | girls-chat-expression-style | `skill/girls-chat-expression-style/SKILL.md` | 应用基于聊天记录蒸馏出的表达类型风格到新用户或新对话 |
 
 ## Agent 入口

@@ -4,12 +4,18 @@ import json
 from typing import Any
 
 from app.agent.llm import chat_completion, extract_json
-from app.agent.tools import tool_demo_candidates, tool_sanitize_candidates
+from app.agent.tools import (
+    tool_contact_style_instructions,
+    tool_demo_candidates,
+    tool_sanitize_candidates,
+)
 from app.agent.tracing import make_trace_event, start_timer
 from app.models import Contact, RuntimeSettings
 
 
 def _build_writer_prompt(state: dict[str, Any]) -> str:
+    contact = Contact.model_validate(state["contact"])
+    style = tool_contact_style_instructions(contact)
     return f"""
 你是一个只生成私人聊天草稿的中文写手角色。不要替用户编造事实、承诺、位置、行程或金钱决定。
 你的任务是接住对方当前尚未回复的连续消息，生成下一条可以直接发送的微信消息；最后一句只是这段消息的一部分。不要总结整段对话。
@@ -19,7 +25,14 @@ def _build_writer_prompt(state: dict[str, Any]) -> str:
 如果对方已经回答了问题，不要再回答已经结束的问题，也不要突然切换成客服式关心。
 必须先满足 response_plan.action；当动作为 acknowledge_then_explore 时，先承接对方的完整陈述再追问，不能只针对末句评价、调侃或转换话题。
 如果当前或紧邻上下文涉及警察介入、动手、受伤、威胁或其他人身冲突，先承接惊吓或不适并关心对方是否安全；绝不能用“幸运、还好、活该、你也挺能”的口吻淡化、调侃或归因。
-每条候选只保留一个交流动作，通常 3-15 个汉字；除非确有必要，不要连续提出两个问题。
+每条候选只保留一个交流动作；除非确有必要，不要连续提出两个问题。
+
+联系人写作偏好（必须遵守）：
+- 长度：{style["message_length_rule"]}
+- 表情：{style["emoji_rule"]}
+- 幽默：{style["humor_rule"]}
+- 称呼：仅在自然时使用「{style["preferred_address"] or "不使用生造称呼"}」
+- 边界：{"；".join(style["boundaries"]) or "无额外边界"}
 
 写作约束 style_brief：
 {json.dumps(state.get("style_brief") or {}, ensure_ascii=False)}
@@ -32,9 +45,6 @@ def _build_writer_prompt(state: dict[str, Any]) -> str:
 
 关系 Skill：
 {json.dumps(state.get("relationship_skill") or {}, ensure_ascii=False)}
-
-联系人档案：
-{json.dumps(state.get("contact") or {}, ensure_ascii=False)}
 
 当前场景：{state.get("scene")}
 当前对话动作与主题：

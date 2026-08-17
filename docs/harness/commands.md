@@ -76,4 +76,4 @@ Set-Location frontend
 npm run lint
 ```
 
-当前前端仍是模板页面，执行结果只能说明模板代码的静态检查状态，不能代表业务流程已验证。
+当前 React 工作台已接入联系人、导入、草稿、反馈与设置流程；`npm run lint` 检查的是业务页面，不是 Vite 模板。

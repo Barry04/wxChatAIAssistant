@@ -22,7 +22,7 @@ description: >-
 
 ### 分层
 
-- [已验证] `app/main.py` 只负责 HTTP 路由、请求编排和静态文件托管；业务判断放在 `app/services.py`。
+- [已验证] `app/main.py` 只负责 HTTP 路由、请求编排和静态文件托管；业务判断放在 `app/services.py`；自动回复循环委托 `app/runtime/orchestrator.py`，发送只经 `app/operator`。
 - [已验证] 新增或修改请求体时，先在 `app/models.py` 定义 Pydantic 模型。
 - [已验证] 文件路径、默认数据和 JSON/JSONL 读写统一放在 `app/storage.py`。
 

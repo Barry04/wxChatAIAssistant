@@ -9,6 +9,7 @@ from app.services import (
     analyze_dialogue,
     classify_risk,
     classify_scene,
+    contact_style_instructions,
     retrieve_examples,
 )
 from app.self_skill import get_self_skill_prompt
@@ -46,6 +47,10 @@ def tool_load_persona(contact_id: str) -> str:
 
 def tool_load_profile() -> dict[str, Any]:
     return read_json(PROFILE_FILE, {})
+
+
+def tool_contact_style_instructions(contact: Contact) -> dict[str, Any]:
+    return contact_style_instructions(contact)
 
 
 def tool_demo_candidates(

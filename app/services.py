@@ -489,6 +489,107 @@ def distill_profile() -> dict[str, Any]:
     return profile
 
 
+LENGTH_NOTES = {
+    "very_short": "尽量 4-8 个汉字，一句说完",
+    "short": "保持 8-15 个汉字的微信口吻",
+    "medium": "可以稍长到 20 字，但仍是一条消息",
+}
+EMOJI_NOTES = {
+    "none": "不要使用表情符号",
+    "low": "通常不用表情，必要时最多一个",
+    "medium": "可以自然带一个语气延展或轻表情",
+    "high": "适当使用表情或「哈哈」类语气",
+}
+HUMOR_NOTES = {
+    "low": "克制，少开玩笑",
+    "medium": "自然轻松，不要硬搞笑",
+    "high": "可以更活泼、带点玩笑",
+}
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F300-\U0001FAFF"
+    "\U00002600-\U000027BF"
+    "\U0000FE00-\U0000FE0F"
+    "\U0001F1E6-\U0001F1FF"
+    "]+"
+)
+_LAUGH_RE = re.compile(r"(哈){2,}|hhh+|lol", re.I)
+
+
+def contact_style_instructions(contact: Contact) -> dict[str, Any]:
+    return {
+        "preferred_address": contact.preferred_address,
+        "message_length": contact.message_length,
+        "message_length_rule": LENGTH_NOTES[contact.message_length],
+        "emoji_level": contact.emoji_level,
+        "emoji_rule": EMOJI_NOTES[contact.emoji_level],
+        "humor_level": contact.humor_level,
+        "humor_rule": HUMOR_NOTES[contact.humor_level],
+        "boundaries": list(contact.boundaries or []),
+    }
+
+
+def _shorten_reply(text: str, max_chars: int = 8) -> str:
+    compact = text.strip()
+    if len(compact) <= max_chars:
+        return compact
+    if compact.endswith(("?", "？")):
+        tail = re.split(r"[，,。]", compact)[-1].strip()
+        if 2 <= len(tail) <= max_chars + 4:
+            return tail
+    for sep in ("，", ",", "。"):
+        if sep in compact:
+            head = compact.split(sep, 1)[0].strip()
+            if 2 <= len(head) <= max_chars + 4:
+                return head
+    return compact[:max_chars]
+
+
+def _apply_contact_preferences(
+    texts: list[str],
+    contact: Contact,
+    scene: str = "daily",
+) -> list[str]:
+    styled: list[str] = []
+    playful_scenes = {"daily", "joking", "invitation"}
+    for index, text in enumerate(texts):
+        item = re.sub(r"\s+", " ", text.strip())
+        if contact.emoji_level == "none":
+            item = _EMOJI_RE.sub("", item).strip()
+        if contact.humor_level == "low":
+            item = _LAUGH_RE.sub("", item)
+            item = re.sub(r"\s+", " ", item).strip(" ，,")
+        if contact.message_length == "very_short":
+            item = _shorten_reply(item)
+        if (
+            contact.emoji_level == "high"
+            and index == 0
+            and item
+            and not _EMOJI_RE.search(item)
+        ):
+            item = f"{item}{'😄' if contact.humor_level != 'low' else '～'}"
+        elif (
+            contact.emoji_level == "medium"
+            and index == 0
+            and item
+            and not _EMOJI_RE.search(item)
+            and not item.endswith("～")
+        ):
+            item = f"{item}～"
+        if (
+            contact.humor_level == "high"
+            and contact.relationship != "family"
+            and scene in playful_scenes
+            and index == 0
+            and item
+            and "哈" not in item
+            and not item.endswith(("?", "？"))
+        ):
+            item = f"{item}哈哈"
+        styled.append(item or text.strip())
+    return styled
+
+
 def _demo_candidates(
     contact: Contact,
     scene: str,
@@ -629,15 +730,19 @@ def _demo_candidates(
                 "这个我还真不确定，你咋想的？",
                 "咋了，具体说说？",
             ]
+    example_text = ""
     if examples and dialogue.get("dialogue_act") not in {"affirmation", "question"}:
-        example_text = " ".join(examples[0].get("my_reply", [])).strip()
+        candidate_example = " ".join(examples[0].get("my_reply", [])).strip()
         if (
             examples[0].get("contact_id") == contact.contact_id
-            and example_text
-            and re.search(r"[\u4e00-\u9fffA-Za-z0-9]", example_text)
-            and example_text not in selected
+            and candidate_example
+            and re.search(r"[\u4e00-\u9fffA-Za-z0-9]", candidate_example)
+            and candidate_example not in selected
         ):
-            selected[0] = example_text
+            example_text = candidate_example
+    if example_text:
+        selected[0] = example_text
+    selected = _apply_contact_preferences(selected, contact, scene)
     labels = ["最像我", "更温和", "更简短"]
     return [{"label": label, "text": text} for label, text in zip(labels, selected)]
 

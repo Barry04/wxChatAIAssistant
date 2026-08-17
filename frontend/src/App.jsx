@@ -10,6 +10,7 @@ import {
   LoaderCircle,
   MessageCircle,
   Pause,
+  Pencil,
   Plus,
   Play,
   RefreshCw,
@@ -17,6 +18,7 @@ import {
   Send,
   Settings,
   ShieldCheck,
+  Smile,
   Sparkles,
   Trash2,
   Upload,
@@ -25,6 +27,7 @@ import {
   X,
 } from 'lucide-react'
 import './App.css'
+import './Modern.css'
 
 const relationshipMeta = {
   partner: { label: '情侣', icon: Heart, color: '#d85b7d' },
@@ -37,6 +40,59 @@ const autoSendLevelOptions = [
   { level: 'L1', label: 'L1 轻度计划/提醒' },
   { level: 'L2', label: 'L2 敏感关系场景' },
 ]
+
+const lengthLabels = {
+  very_short: '很短',
+  short: '简短',
+  medium: '适中',
+}
+
+const emojiLabels = {
+  none: '不用',
+  low: '偶尔',
+  medium: '适中',
+  high: '经常',
+}
+
+const humorLabels = {
+  low: '克制',
+  medium: '自然',
+  high: '活跃',
+}
+
+const BOOTSTRAP_CACHE_KEY = 'wx-chat-assistant:bootstrap:v1'
+const BOOTSTRAP_CACHE_TTL_MS = 2 * 60 * 1000
+
+function readBootstrapCache() {
+  try {
+    const stored = window.localStorage.getItem(BOOTSTRAP_CACHE_KEY)
+    if (!stored) return null
+    const record = JSON.parse(stored)
+    if (
+      !record?.data ||
+      !Array.isArray(record.data.contacts) ||
+      !Array.isArray(record.data.skills) ||
+      typeof record.savedAt !== 'number'
+    ) {
+      window.localStorage.removeItem(BOOTSTRAP_CACHE_KEY)
+      return null
+    }
+    return record
+  } catch {
+    return null
+  }
+}
+
+function writeBootstrapCache(data) {
+  try {
+    window.localStorage.setItem(
+      BOOTSTRAP_CACHE_KEY,
+      JSON.stringify({ savedAt: Date.now(), data }),
+    )
+  } catch {
+    // 缓存不可用时继续走本地 API，不影响工作台使用。
+  }
+}
 
 function formatAutoSendMode(settings, wechatStatus) {
   if (!settings?.enabled || settings?.dry_run) return 'Dry-run'
@@ -111,6 +167,328 @@ function summarizeContactCheck(contact, actions = []) {
     return `已拦截${contact.display_name}的候选回复，未发送到微信`
   }
   return `已检查${contact.display_name}，本次状态：${action.action || '无可发送回复'}`
+}
+
+function PendingConfirmationList({
+  pending,
+  pendingDrafts,
+  setPendingDrafts,
+  working,
+  onConfirm,
+  onDiscard,
+  heading = '待确认队列',
+  emptyText = '暂无待确认回复。确认后只会把已批准原文交给发送执行器。',
+  listId,
+}) {
+  return (
+    <div className="pending-confirmations" id={listId}>
+      <div className="pending-heading">
+        <strong>{heading}</strong>
+        <span>{pending.length} 条</span>
+      </div>
+      {pending.length === 0 ? (
+        <p className="form-hint">{emptyText}</p>
+      ) : (
+        pending.map((item) => (
+          <article className="pending-item" key={item.id}>
+            <div className="pending-item-header">
+              <strong>{item.display_name}</strong>
+              <span>{item.risk?.level || '未知风险'}</span>
+            </div>
+            {item.incoming?.length > 0 && (
+              <p className="pending-incoming">
+                {item.incoming.slice(-2).join(' / ')}
+              </p>
+            )}
+            {(item.candidate_options?.length
+              ? item.candidate_options
+              : [item.candidate]
+            )
+              .filter(Boolean)
+              .map((option, index) => (
+                <button
+                  type="button"
+                  className={`l1-option ${
+                    (pendingDrafts[item.id] ?? item.candidate) === option
+                      ? 'selected'
+                      : ''
+                  }`}
+                  key={`${item.id}-${option}-${index}`}
+                  onClick={() =>
+                    setPendingDrafts((drafts) => ({
+                      ...drafts,
+                      [item.id]: option,
+                    }))
+                  }
+                >
+                  <span>{option}</span>
+                </button>
+              ))}
+            <textarea
+              value={pendingDrafts[item.id] ?? item.candidate ?? ''}
+              onChange={(event) =>
+                setPendingDrafts((drafts) => ({
+                  ...drafts,
+                  [item.id]: event.target.value,
+                }))
+              }
+              maxLength={200}
+              aria-label={`编辑${item.display_name}的候选回复`}
+            />
+            <div className="pending-actions">
+              <button
+                type="button"
+                className="button primary"
+                onClick={() => onConfirm(item)}
+                disabled={
+                  Boolean(working) ||
+                  !(pendingDrafts[item.id] || item.candidate || '').trim()
+                }
+              >
+                {working === `confirm:${item.id}` ? (
+                  <LoaderCircle className="spin" size={16} />
+                ) : (
+                  <Send size={16} />
+                )}
+                确认并发送
+              </button>
+              <button
+                type="button"
+                className="button ghost"
+                onClick={() => onDiscard(item)}
+                disabled={Boolean(working)}
+              >
+                <Trash2 size={16} />
+                放弃
+              </button>
+            </div>
+          </article>
+        ))
+      )}
+    </div>
+  )
+}
+
+function PendingWorkbench({
+  pending,
+  selectedContact,
+  scope,
+  setScope,
+  pendingDrafts,
+  setPendingDrafts,
+  working,
+  onConfirm,
+  onDiscard,
+}) {
+  const [activeId, setActiveId] = useState('')
+  const showingCurrentContact = scope === 'current' && Boolean(selectedContact)
+  const visiblePending = showingCurrentContact
+    ? pending.filter((item) => item.contact_id === selectedContact.contact_id)
+    : pending
+
+  useEffect(() => {
+    if (!visiblePending.some((item) => item.id === activeId)) {
+      setActiveId(visiblePending[0]?.id || '')
+    }
+  }, [activeId, visiblePending])
+
+  const activeItem =
+    visiblePending.find((item) => item.id === activeId) || visiblePending[0] || null
+  const riskCount = visiblePending.filter((item) => item.risk?.level !== 'L0').length
+
+  return (
+    <section className="pending-workspace">
+      <header className="pending-workspace-header">
+        <div>
+          <span className="eyebrow">人工确认</span>
+          <h2>逐条检查，再决定是否发送</h2>
+          <p>
+            {showingCurrentContact
+              ? `仅显示“${selectedContact.display_name}”的待确认回复。`
+              : '左侧选择消息，右侧确认上下文、候选和最终发送文本。'}
+          </p>
+        </div>
+        <div className="pending-header-actions">
+          <div className="pending-scope" role="group" aria-label="待确认回复筛选">
+            <button
+              type="button"
+              className={showingCurrentContact ? 'active' : ''}
+              onClick={() => setScope('current')}
+              disabled={!selectedContact}
+            >
+              当前会话
+            </button>
+            <button
+              type="button"
+              className={!showingCurrentContact ? 'active' : ''}
+              onClick={() => setScope('all')}
+            >
+              全部会话
+            </button>
+          </div>
+          <div className="pending-workspace-stats">
+            <span>
+              <strong>{visiblePending.length}</strong> 待处理
+            </span>
+            <span className={riskCount ? 'has-risk' : ''}>
+              <strong>{riskCount}</strong> 需谨慎
+            </span>
+          </div>
+        </div>
+      </header>
+
+      {visiblePending.length === 0 ? (
+        <div className="pending-empty">
+          <ShieldCheck size={30} />
+          <strong>
+            {showingCurrentContact
+              ? `${selectedContact.display_name} 暂无待确认回复`
+              : '队列已经清空'}
+          </strong>
+          <p>
+            {showingCurrentContact && pending.length > 0
+              ? '可以切换到“全部会话”查看其他联系人的待确认回复。'
+              : '新的待确认回复会出现在这里，不会自动发送。'}
+          </p>
+          {showingCurrentContact && pending.length > 0 && (
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => setScope('all')}
+            >
+              查看全部会话
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="pending-workbench-grid">
+          <nav className="pending-inbox" aria-label="待确认消息">
+            {visiblePending.map((item) => {
+              const incoming = item.incoming?.slice(-2).join(' / ') || '无可用上下文'
+              const preview =
+                pendingDrafts[item.id] || item.candidate || '等待填写回复'
+              return (
+                <button
+                  type="button"
+                  className={`pending-inbox-item ${
+                    activeItem?.id === item.id ? 'active' : ''
+                  }`}
+                  key={item.id}
+                  onClick={() => setActiveId(item.id)}
+                >
+                  <span className="pending-inbox-meta">
+                    <strong>{item.display_name}</strong>
+                    <span className={`risk-dot risk-${item.risk?.level || 'L0'}`}>
+                      {item.risk?.level || 'L0'}
+                    </span>
+                  </span>
+                  <span className="pending-inbox-context">{incoming}</span>
+                  <span className="pending-inbox-preview">{preview}</span>
+                </button>
+              )
+            })}
+          </nav>
+
+          {activeItem && (
+            <article className="pending-review-card">
+              <div className="pending-review-heading">
+                <div>
+                  <span className="eyebrow">发送给</span>
+                  <h3>{activeItem.display_name}</h3>
+                </div>
+                <span className={`risk-badge risk-${activeItem.risk?.level || 'L0'}`}>
+                  {activeItem.risk?.level || 'L0'} ·{' '}
+                  {activeItem.risk?.label || '普通聊天'}
+                </span>
+              </div>
+
+              <div className="pending-context-card">
+                <span>对方最新消息</span>
+                <p>{activeItem.incoming?.slice(-2).join('\n') || '无可用上下文'}</p>
+              </div>
+
+              <div className="pending-option-group">
+                <span>选择一个候选</span>
+                <div>
+                  {(activeItem.candidate_options?.length
+                    ? activeItem.candidate_options
+                    : [activeItem.candidate]
+                  )
+                    .filter(Boolean)
+                    .map((option, index) => (
+                      <button
+                        type="button"
+                        className={`pending-option ${
+                          (pendingDrafts[activeItem.id] ?? activeItem.candidate) ===
+                          option
+                            ? 'selected'
+                            : ''
+                        }`}
+                        key={`${activeItem.id}-${option}-${index}`}
+                        onClick={() =>
+                          setPendingDrafts((drafts) => ({
+                            ...drafts,
+                            [activeItem.id]: option,
+                          }))
+                        }
+                      >
+                        <span>{option}</span>
+                        {(pendingDrafts[activeItem.id] ?? activeItem.candidate) ===
+                          option && <Check size={16} />}
+                      </button>
+                    ))}
+                </div>
+              </div>
+
+              <label className="pending-final-copy">
+                <span>最终发送文本</span>
+                <textarea
+                  value={
+                    pendingDrafts[activeItem.id] ?? activeItem.candidate ?? ''
+                  }
+                  onChange={(event) =>
+                    setPendingDrafts((drafts) => ({
+                      ...drafts,
+                      [activeItem.id]: event.target.value,
+                    }))
+                  }
+                  maxLength={200}
+                />
+              </label>
+
+              <div className="pending-review-actions">
+                <button
+                  type="button"
+                  className="button ghost danger"
+                  onClick={() => onDiscard(activeItem)}
+                  disabled={Boolean(working)}
+                >
+                  <Trash2 size={17} />
+                  放弃这条
+                </button>
+                <button
+                  type="button"
+                  className="button primary"
+                  onClick={() => onConfirm(activeItem)}
+                  disabled={
+                    Boolean(working) ||
+                    !(pendingDrafts[activeItem.id] || activeItem.candidate || '').trim()
+                  }
+                >
+                  {working === `confirm:${activeItem.id}` ? (
+                    <LoaderCircle className="spin" size={17} />
+                  ) : (
+                    <Send size={17} />
+                  )}
+                  确认并发送
+                </button>
+              </div>
+            </article>
+          )}
+        </div>
+      )}
+    </section>
+  )
 }
 
 const emptyContact = {
@@ -210,6 +588,11 @@ function App() {
   const [modal, setModal] = useState('')
   const [mobileSidebar, setMobileSidebar] = useState(false)
   const [activeStylePresetId, setActiveStylePresetId] = useState('style:balanced')
+  const [workspaceMode, setWorkspaceMode] = useState('draft')
+  const [pendingScope, setPendingScope] = useState('current')
+  const [pendingCount, setPendingCount] = useState(0)
+  const [pendingItems, setPendingItems] = useState([])
+  const [pendingDrafts, setPendingDrafts] = useState({})
   const lastPendingL1Ids = useRef(null)
 
   const selectedContact = useMemo(
@@ -238,8 +621,26 @@ function App() {
   }
 
   useEffect(() => {
+    const cached = readBootstrapCache()
+    const applyBootstrap = (data) => {
+      setContacts(data.contacts)
+      setSkills(data.skills)
+      setStats(data.stats)
+      setSettings(data.settings)
+      setSelfSkill(data.selfSkill)
+      setGirlsChatStyle(data.girlsChatStyle)
+      setStylePresets(data.stylePresets)
+      setWechatStatus(data.wechatStatus)
+      setSelectedId((current) => {
+        const preferred = current || data.selectedId
+        return data.contacts.some((item) => item.contact_id === preferred)
+          ? preferred
+          : data.contacts[0]?.contact_id || ''
+      })
+    }
+
     async function bootstrap() {
-      setBusy('bootstrap')
+      if (!cached) setBusy('bootstrap')
       try {
         const [
           nextContacts,
@@ -261,28 +662,76 @@ function App() {
             api('/api/self-skill/girls-chat-style'),
             api('/api/wechat/status'),
           ])
-        setContacts(nextContacts)
-        setSkills(nextSkills)
-        setStats(nextStats)
-        setSettings(nextSettings)
-        setSelfSkill(nextSelfSkill)
-        setGirlsChatStyle(nextGirlsChatStyle)
-        setStylePresets(nextStylePresets)
-        setWechatStatus(nextWechatStatus)
-        setSelectedId(nextContacts[0]?.contact_id || '')
+        applyBootstrap({
+          contacts: nextContacts,
+          skills: nextSkills,
+          stats: nextStats,
+          settings: nextSettings,
+          selfSkill: nextSelfSkill,
+          girlsChatStyle: nextGirlsChatStyle,
+          stylePresets: nextStylePresets,
+          wechatStatus: nextWechatStatus,
+          selectedId: cached?.data?.selectedId || '',
+        })
       } catch (error) {
         showNotice(error.message, 'error')
       } finally {
         setBusy('')
       }
     }
+
+    if (cached) {
+      applyBootstrap(cached.data)
+      if (Date.now() - cached.savedAt < BOOTSTRAP_CACHE_TTL_MS) return
+    }
     bootstrap()
   }, [])
+
+  useEffect(() => {
+    if (
+      !stats ||
+      !settings ||
+      !selfSkill ||
+      !girlsChatStyle ||
+      !wechatStatus
+    ) {
+      return
+    }
+    writeBootstrapCache({
+      contacts,
+      skills,
+      stats,
+      settings,
+      selfSkill,
+      girlsChatStyle,
+      stylePresets,
+      wechatStatus,
+      selectedId,
+    })
+  }, [
+    contacts,
+    girlsChatStyle,
+    selectedId,
+    selfSkill,
+    settings,
+    skills,
+    stats,
+    stylePresets,
+    wechatStatus,
+  ])
 
   useEffect(() => {
     const checkPendingRisk = async () => {
       try {
         const pending = await api('/api/automation/pending')
+        setPendingCount(pending.length)
+        setPendingItems(pending)
+        setPendingDrafts((drafts) => ({
+          ...Object.fromEntries(
+            pending.map((item) => [item.id, item.candidate || '']),
+          ),
+          ...drafts,
+        }))
         const currentIds = new Set(
           pending
             .filter((item) => item.risk?.level === 'L1')
@@ -477,18 +926,20 @@ function App() {
     }
   }
 
-  const removeContact = async () => {
-    if (!selectedContact || selectedContact.is_demo) return
-    if (!window.confirm(`确认删除联系人“${selectedContact.display_name}”？`)) return
+  const removeContact = async (contact = selectedContact) => {
+    if (!contact || contact.is_demo) return
+    if (!window.confirm(`确认删除联系人“${contact.display_name}”？`)) return
     try {
-      await api(`/api/contacts/${selectedContact.contact_id}`, {
+      await api(`/api/contacts/${encodeURIComponent(contact.contact_id)}`, {
         method: 'DELETE',
       })
       const remaining = contacts.filter(
-        (item) => item.contact_id !== selectedContact.contact_id,
+        (item) => item.contact_id !== contact.contact_id,
       )
       setContacts(remaining)
-      setSelectedId(remaining[0]?.contact_id || '')
+      if (selectedId === contact.contact_id) {
+        setSelectedId(remaining[0]?.contact_id || '')
+      }
       showNotice('联系人已删除')
     } catch (error) {
       showNotice(error.message, 'error')
@@ -507,6 +958,9 @@ function App() {
       }
       const actions = result.actions || []
       setContactCheckActions(actions)
+      const pending = await api('/api/automation/pending')
+      setPendingCount(pending.length)
+      setPendingItems(pending)
       const action = actions[0]
       showNotice(
         summarizeContactCheck(selectedContact, actions),
@@ -532,7 +986,49 @@ function App() {
       })
       setL1Prompt(null)
       setL1PromptText('')
+      const pending = await api('/api/automation/pending')
+      setPendingCount(pending.length)
+      setPendingItems(pending)
       showNotice('L1 回复已确认并发送')
+    } catch (error) {
+      showNotice(error.message, 'error')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const confirmWorkspacePending = async (item) => {
+    const text = (pendingDrafts[item.id] || item.candidate || '').trim()
+    if (!text) return
+    setBusy(`confirm:${item.id}`)
+    try {
+      await api(`/api/automation/confirm/${encodeURIComponent(item.id)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      const pending = await api('/api/automation/pending')
+      setPendingCount(pending.length)
+      setPendingItems(pending)
+      showNotice('已确认并交给发送执行器')
+    } catch (error) {
+      showNotice(error.message, 'error')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const discardWorkspacePending = async (item) => {
+    if (!window.confirm(`放弃发送给“${item.display_name}”的这条候选回复？`)) return
+    setBusy(`discard:${item.id}`)
+    try {
+      await api(`/api/automation/pending/${encodeURIComponent(item.id)}`, {
+        method: 'DELETE',
+      })
+      const pending = await api('/api/automation/pending')
+      setPendingCount(pending.length)
+      setPendingItems(pending)
+      showNotice('已放弃该条待确认回复')
     } catch (error) {
       showNotice(error.message, 'error')
     } finally {
@@ -609,32 +1105,61 @@ function App() {
             const meta = relationshipMeta[contact.relationship]
             const RelationIcon = meta.icon
             return (
-              <button
-                type="button"
-                className={`contact-item ${
-                  selectedId === contact.contact_id ? 'active' : ''
-                }`}
-                key={contact.contact_id}
-                onClick={() => {
-                  setSelectedId(contact.contact_id)
-                  setMobileSidebar(false)
-                }}
-              >
-                <span
-                  className="contact-avatar"
-                  style={{ '--contact-color': meta.color }}
+              <div className="contact-row" key={contact.contact_id}>
+                <button
+                  type="button"
+                  className={`contact-item ${
+                    selectedId === contact.contact_id ? 'active' : ''
+                  }`}
+                  onClick={() => {
+                    setSelectedId(contact.contact_id)
+                    if (workspaceMode === 'pending') {
+                      setPendingScope('current')
+                    } else {
+                      setWorkspaceMode('draft')
+                    }
+                    setMobileSidebar(false)
+                  }}
                 >
-                  {contact.display_name.slice(0, 1)}
-                </span>
-                <span className="contact-copy">
-                  <strong>{contact.display_name}</strong>
-                  <small>
-                    <RelationIcon size={13} />
-                    {meta.label}
-                  </small>
-                </span>
-                {contact.is_demo && <span className="demo-dot">示例</span>}
-              </button>
+                  <span
+                    className="contact-avatar"
+                    style={{ '--contact-color': meta.color }}
+                  >
+                    {contact.display_name.slice(0, 1)}
+                  </span>
+                  <span className="contact-copy">
+                    <strong>{contact.display_name}</strong>
+                    <small>
+                      <RelationIcon size={13} />
+                      {meta.label}
+                    </small>
+                  </span>
+                  {contact.is_demo && <span className="demo-dot">示例</span>}
+                </button>
+                <div className="contact-actions">
+                  <button
+                    type="button"
+                    className="contact-action contact-edit"
+                    aria-label={`编辑关系 ${contact.display_name}`}
+                    onClick={() => {
+                      setSelectedId(contact.contact_id)
+                      setModal('edit-contact')
+                    }}
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  {!contact.is_demo && (
+                    <button
+                      type="button"
+                      className="contact-action contact-delete"
+                      aria-label={`删除联系人 ${contact.display_name}`}
+                      onClick={() => removeContact(contact)}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
             )
           })}
         </nav>
@@ -686,6 +1211,29 @@ function App() {
                 ? '微信数据与自动回复'
                 : '微信数据未连接'}
             </button>
+            {pendingCount > 0 && (
+              <button
+                type="button"
+                className={`connection-button pending ${
+                  workspaceMode === 'pending' ? 'active' : ''
+                }`}
+                onClick={() => {
+                  setPendingScope('current')
+                  setWorkspaceMode('pending')
+                }}
+              >
+                <ShieldCheck size={16} />
+                {pendingCount} 条待确认
+              </button>
+            )}
+            {selectedContact && (
+              <IconButton
+                label="编辑联系人"
+                onClick={() => setModal('edit-contact')}
+              >
+                <Pencil size={18} />
+              </IconButton>
+            )}
             {selectedContact && !selectedContact.is_demo && (
               <IconButton label="删除联系人" onClick={removeContact}>
                 <Trash2 size={18} />
@@ -706,12 +1254,49 @@ function App() {
           </div>
         </header>
 
-        <div className="workspace">
+        <nav className="workspace-nav" aria-label="工作区">
+          <button
+            type="button"
+            className={workspaceMode === 'draft' ? 'active' : ''}
+            onClick={() => setWorkspaceMode('draft')}
+          >
+            <MessageCircle size={16} />
+            手动生成
+          </button>
+          <button
+            type="button"
+            className={workspaceMode === 'pending' ? 'active' : ''}
+            onClick={() => {
+              setPendingScope('current')
+              setWorkspaceMode('pending')
+            }}
+          >
+            <ShieldCheck size={16} />
+            待确认
+            {pendingCount > 0 && <span>{pendingCount}</span>}
+          </button>
+        </nav>
+
+        {workspaceMode === 'pending' ? (
+          <PendingWorkbench
+            pending={pendingItems}
+            selectedContact={selectedContact}
+            scope={pendingScope}
+            setScope={setPendingScope}
+            pendingDrafts={pendingDrafts}
+            setPendingDrafts={setPendingDrafts}
+            working={busy}
+            onConfirm={confirmWorkspacePending}
+            onDiscard={discardWorkspacePending}
+          />
+        ) : (
+          <>
+            <div className="workspace">
           <section className="conversation-panel">
             <div className="section-heading">
               <div>
-                <span className="eyebrow">自动回复</span>
-                <h2>监听微信新消息</h2>
+                <span className="eyebrow">手动草稿</span>
+                <h2>贴入对话，生成下一句</h2>
               </div>
               <span
                 className={`automation-badge ${
@@ -720,16 +1305,14 @@ function App() {
                     : ''
                 }`}
               >
-                {contactAutomationSettings?.memory_sync_enabled
-                  ? '记忆同步中'
-                  : '已关闭'}
+                {selectedContact ? '基于当前联系人' : '先选择联系人'}
               </span>
             </div>
 
             <details className="automation-details">
               <summary>
                 <span>
-                  <span className="eyebrow">自动回复状态</span>
+                  <span className="eyebrow">自动化与记忆设置</span>
                   <strong>
                     {contactAutomationSettings?.enabled
                       ? '已开启监听'
@@ -919,7 +1502,7 @@ function App() {
             <div className="automation-primary-actions">
               <button
                 type="button"
-                className="button primary"
+                className="button secondary automation-check-button"
                 onClick={runAutomationOnce}
                 disabled={
                   busy === 'automation' || !wechatStatus?.reader?.ready
@@ -941,14 +1524,10 @@ function App() {
               </div>
             )}
 
-            <div className="manual-divider">
-              <span>手动草稿调试</span>
-            </div>
-
             <textarea
               value={conversation}
               onChange={(event) => setConversation(event.target.value)}
-              placeholder="通常无需粘贴。仅在调试某段对话时手动输入…"
+              placeholder={'粘贴最近几轮对话，例如：\n对方：今天有点累\n我：怎么啦？'}
               aria-label="当前聊天内容"
               maxLength={12000}
             />
@@ -1008,7 +1587,11 @@ function App() {
             </div>
 
             {selectedContact && (
-              <div className="contact-context">
+              <button
+                type="button"
+                className="contact-context"
+                onClick={() => setModal('edit-contact')}
+              >
                 <div>
                   <UserRound size={16} />
                   <span>称呼</span>
@@ -1016,21 +1599,27 @@ function App() {
                 </div>
                 <div>
                   <MessageCircle size={16} />
-                  <span>表达长度</span>
+                  <span>长度</span>
                   <strong>
-                    {{
-                      very_short: '很短',
-                      short: '简短',
-                      medium: '适中',
-                    }[selectedContact.message_length]}
+                    {lengthLabels[selectedContact.message_length]}
                   </strong>
+                </div>
+                <div>
+                  <Smile size={16} />
+                  <span>表情</span>
+                  <strong>{emojiLabels[selectedContact.emoji_level]}</strong>
+                </div>
+                <div>
+                  <Sparkles size={16} />
+                  <span>幽默</span>
+                  <strong>{humorLabels[selectedContact.humor_level]}</strong>
                 </div>
                 <div>
                   <ShieldCheck size={16} />
                   <span>边界</span>
                   <strong>{selectedContact.boundaries.length} 条</strong>
                 </div>
-              </div>
+              </button>
             )}
           </section>
 
@@ -1261,30 +1850,10 @@ function App() {
             )}
             {'\u84b8\u998f\u5973\u751f\u804a\u5929\u98ce\u683c'}
           </button>
-        </section>
+            </section>
+          </>
+        )}
       </main>
-
-      {modal === 'contact' && (
-        <ContactModal
-          stylePresets={stylePresets}
-          onClose={() => setModal('')}
-          onSaved={(contact) => {
-            const existing = contacts.some(
-              (item) => item.contact_id === contact.contact_id,
-            )
-            setContacts(
-              existing
-                ? contacts.map((item) =>
-                    item.contact_id === contact.contact_id ? contact : item,
-                  )
-                : [...contacts, contact],
-            )
-            setSelectedId(contact.contact_id)
-            setModal('')
-            showNotice('联系人已保存')
-          }}
-        />
-      )}
 
       {l1Prompt && (
         <Modal
@@ -1374,6 +1943,30 @@ function App() {
             await refreshStats()
             setModal('')
             showNotice(`已导入 ${count} 组对话`)
+          }}
+        />
+      )}
+
+      {(modal === 'contact' || modal === 'edit-contact') && (
+        <ContactModal
+          contact={modal === 'edit-contact' ? selectedContact : null}
+          stylePresets={stylePresets}
+          onClose={() => setModal('')}
+          onSaved={(saved) => {
+            setContacts((current) => {
+              const exists = current.some(
+                (item) => item.contact_id === saved.contact_id,
+              )
+              if (!exists) return [...current, saved]
+              return current.map((item) =>
+                item.contact_id === saved.contact_id ? saved : item,
+              )
+            })
+            setSelectedId(saved.contact_id)
+            setModal('')
+            showNotice(
+              modal === 'edit-contact' ? '联系人偏好已更新' : '已添加联系人',
+            )
           }}
         />
       )}
@@ -2023,67 +2616,16 @@ function WeChatModal({
               </span>
             </div>
 
-            <div className="pending-confirmations">
-              <div className="pending-heading">
-                <strong>待人工确认</strong>
-                <span>{pending.length} 条</span>
-              </div>
-              {pending.length === 0 ? (
-                <p className="form-hint">暂无待确认回复。</p>
-              ) : (
-                pending.map((item) => (
-                  <article className="pending-item" key={item.id}>
-                    <div className="pending-item-header">
-                      <strong>{item.display_name}</strong>
-                      <span>{item.risk?.level || '未知风险'}</span>
-                    </div>
-                    {item.incoming?.length > 0 && (
-                      <p className="pending-incoming">
-                        {item.incoming.slice(-2).join(' / ')}
-                      </p>
-                    )}
-                    <textarea
-                      value={pendingDrafts[item.id] ?? item.candidate ?? ''}
-                      onChange={(event) =>
-                        setPendingDrafts((drafts) => ({
-                          ...drafts,
-                          [item.id]: event.target.value,
-                        }))
-                      }
-                      maxLength={200}
-                      aria-label={`编辑${item.display_name}的候选回复`}
-                    />
-                    <div className="pending-actions">
-                      <button
-                        type="button"
-                        className="button primary"
-                        onClick={() => confirmPending(item)}
-                        disabled={
-                          Boolean(working) ||
-                          !(pendingDrafts[item.id] || item.candidate || '').trim()
-                        }
-                      >
-                        {working === `confirm:${item.id}` ? (
-                          <LoaderCircle className="spin" size={16} />
-                        ) : (
-                          <Send size={16} />
-                        )}
-                        确认发送
-                      </button>
-                      <button
-                        type="button"
-                        className="button ghost"
-                        onClick={() => discardPending(item)}
-                        disabled={Boolean(working)}
-                      >
-                        <Trash2 size={16} />
-                        放弃
-                      </button>
-                    </div>
-                  </article>
-                ))
-              )}
-            </div>
+            <PendingConfirmationList
+              pending={pending}
+              pendingDrafts={pendingDrafts}
+              setPendingDrafts={setPendingDrafts}
+              working={working}
+              onConfirm={confirmPending}
+              onDiscard={discardPending}
+              heading="待人工确认"
+              emptyText="暂无待确认回复。"
+            />
 
             <div className="whitelist">
               <span>允许自动处理的联系人</span>
@@ -2250,10 +2792,20 @@ function WeChatModal({
   )
 }
 
-function ContactModal({ onClose, onSaved, stylePresets = [] }) {
-  const [form, setForm] = useState(emptyContact)
+function ContactModal({
+  onClose,
+  onSaved,
+  stylePresets = [],
+  contact = null,
+}) {
+  const isEditing = Boolean(contact?.contact_id)
+  const [form, setForm] = useState(() =>
+    contact ? { ...emptyContact, ...contact } : emptyContact,
+  )
   const [sessions, setSessions] = useState([])
-  const [boundaryText, setBoundaryText] = useState('')
+  const [boundaryText, setBoundaryText] = useState(() =>
+    (contact?.boundaries || []).join('\n'),
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -2275,26 +2827,28 @@ function ContactModal({ onClose, onSaved, stylePresets = [] }) {
     setSaving(true)
     setError('')
     try {
-      const contact = await api('/api/contacts', {
+      const savedContact = await api('/api/contacts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
-          contact_id:
-            form.contact_id.trim() ||
-            (form.wechat_username
-              ? `wechat:${form.wechat_username}`
-              : `contact-${Date.now().toString(36)}`),
+          contact_id: isEditing
+            ? form.contact_id
+            : form.contact_id.trim() ||
+              (form.wechat_username
+                ? `wechat:${form.wechat_username}`
+                : `contact-${Date.now().toString(36)}`),
           display_name: form.display_name.trim(),
           wechat_username: form.wechat_username.trim(),
           preferred_address: form.preferred_address.trim(),
+          is_demo: Boolean(form.is_demo),
           boundaries: boundaryText
             .split('\n')
             .map((item) => item.trim())
             .filter(Boolean),
         }),
       })
-      onSaved(contact)
+      onSaved(savedContact)
     } catch (submitError) {
       setError(submitError.message)
     } finally {
@@ -2304,8 +2858,12 @@ function ContactModal({ onClose, onSaved, stylePresets = [] }) {
 
   return (
     <Modal
-      title="添加联系人"
-      subtitle="关系和称呼会影响草稿的语气"
+      title={isEditing ? '编辑联系人' : '添加联系人'}
+      subtitle={
+        isEditing
+          ? '称呼、长度和语气会立刻影响下一轮草稿'
+          : '关系和称呼会影响草稿的语气'
+      }
       onClose={onClose}
     >
       <form className="modal-body form-grid" onSubmit={submit}>
@@ -2532,10 +3090,12 @@ function ContactModal({ onClose, onSaved, stylePresets = [] }) {
           >
             {saving ? (
               <LoaderCircle className="spin" size={17} />
+            ) : isEditing ? (
+              <Check size={17} />
             ) : (
               <Plus size={17} />
             )}
-            保存联系人
+            {isEditing ? '保存偏好' : '保存联系人'}
           </button>
         </div>
       </form>

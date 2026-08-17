@@ -1,8 +1,8 @@
 :root {
   font-family:
     Inter, "Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif;
-  color: #202522;
-  background: #f4f6f5;
+  color: #18211d;
+  background: #f1efe9;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -15,7 +15,7 @@
 
 html {
   min-width: 320px;
-  background: #f4f6f5;
+  background: #f1efe9;
 }
 
 body {
@@ -35,11 +35,11 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid #1e8f68;
+  outline: 2px solid #16785b;
   outline-offset: 2px;
 }
 
 ::selection {
   color: #fff;
-  background: #1e8f68;
+  background: #16785b;
 }

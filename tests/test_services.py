@@ -10,7 +10,7 @@ from app.services import (
     parse_plain_text,
     retrieve_examples,
 )
-from app.services import _sanitize_candidates
+from app.services import _demo_candidates, _sanitize_candidates
 from app.self_skill import (
     _girls_chat_candidates,
     distill_girls_chat_style,
@@ -63,6 +63,109 @@ def test_demo_generation():
     )
     assert result["scene"] == "comfort"
     assert len(result["candidates"]) == 3
+
+
+def test_demo_generation_shortens_when_length_is_very_short():
+    contact = Contact(
+        contact_id="contact-a",
+        display_name="小A",
+        relationship="friend",
+        message_length="very_short",
+    )
+    result = asyncio.run(
+        generate_reply(
+            contact,
+            "今天真的特别累",
+            RuntimeSettings(provider="demo"),
+        )
+    )
+    texts = [item["text"] for item in result["candidates"]]
+    assert result["scene"] == "comfort"
+    assert texts[0] == "咋了"
+    assert all(len(text) <= 8 for text in texts)
+
+
+def test_demo_generation_adds_emoji_for_high_emoji_level():
+    contact = Contact(
+        contact_id="contact-a",
+        display_name="小A",
+        relationship="friend",
+        emoji_level="high",
+    )
+    result = asyncio.run(
+        generate_reply(
+            contact,
+            "对方: 周末一起吃饭吧",
+            RuntimeSettings(provider="demo"),
+        )
+    )
+    assert "😄" in result["candidates"][0]["text"]
+
+
+def test_demo_generation_adds_humor_in_playful_scenes():
+    contact = Contact(
+        contact_id="contact-a",
+        display_name="小A",
+        relationship="friend",
+        humor_level="high",
+    )
+    result = asyncio.run(
+        generate_reply(
+            contact,
+            "对方: 今天天气不错",
+            RuntimeSettings(provider="demo"),
+        )
+    )
+    assert result["scene"] == "daily"
+    assert result["candidates"][0]["text"].endswith("哈哈")
+
+
+def test_demo_generation_strips_laugh_when_humor_is_low():
+    contact = Contact(
+        contact_id="contact-a",
+        display_name="小A",
+        relationship="friend",
+        humor_level="low",
+    )
+    result = asyncio.run(
+        generate_reply(
+            contact,
+            "对方: 笑死我了哈哈",
+            RuntimeSettings(provider="demo"),
+        )
+    )
+    texts = [item["text"] for item in result["candidates"]]
+    assert result["scene"] == "joking"
+    assert all("哈哈" not in text for text in texts)
+
+
+def test_demo_generation_applies_preferences_to_contact_example():
+    contact = Contact(
+        contact_id="contact-a",
+        display_name="小A",
+        relationship="friend",
+        message_length="very_short",
+        emoji_level="none",
+        humor_level="low",
+    )
+
+    candidates = _demo_candidates(
+        contact,
+        "daily",
+        [
+            {
+                "contact_id": "contact-a",
+                "my_reply": ["这是一条非常非常长的历史回复哈哈😄"],
+            }
+        ],
+        {"dialogue_act": "statement"},
+    )
+
+    first = candidates[0]["text"]
+    assert first == "这是一条非常非常"
+    assert len(first) <= 8
+    assert "😄" not in first
+    assert "哈哈" not in first
 
 
 def test_dialogue_analysis_tracks_short_confirmation_and_topic():

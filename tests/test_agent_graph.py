@@ -25,6 +25,9 @@ def test_langgraph_demo_generation_includes_trace_and_review():
     roles = [item["role"] for item in result["trace"]]
     assert roles == ["understand", "style", "writer", "reviewer"]
     assert result["style_brief"]["dialogue_act"]
+    assert result["style_brief"]["message_length_rule"]
+    assert result["style_brief"]["emoji_rule"]
+    assert result["style_brief"]["humor_rule"]
 
 
 def test_type_style_does_not_retrieve_contact_history(monkeypatch):

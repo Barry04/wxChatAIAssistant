@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.agent.tools import (
+    tool_contact_style_instructions,
     tool_load_persona,
     tool_load_profile,
     tool_load_relationship_skill,
@@ -40,12 +41,16 @@ def style_node(state: dict[str, Any]) -> dict[str, Any]:
     )
 
     principles = skill.get("principles") or []
+    style_prefs = tool_contact_style_instructions(contact)
     style_brief = {
         "relationship": contact.relationship,
         "preferred_address": contact.preferred_address,
         "message_length": contact.message_length,
         "emoji_level": contact.emoji_level,
         "humor_level": contact.humor_level,
+        "message_length_rule": style_prefs["message_length_rule"],
+        "emoji_rule": style_prefs["emoji_rule"],
+        "humor_rule": style_prefs["humor_rule"],
         "style_preset_id": style_preset_id or "global",
         "style_source": (
             "aggregate_style"
@@ -69,13 +74,16 @@ def style_node(state: dict[str, Any]) -> dict[str, Any]:
         "rules": [
             "优先回应对方当前连续发送的整段消息；最后一句只是其中一个片段",
             "先满足 response_plan.action，再考虑幽默、评价或话题推进",
-            "一条候选只做一个交流动作，通常 3-15 个汉字",
+            "一条候选只做一个交流动作",
             "不编造位置、行程、健康、金钱决定或重大关系承诺",
             "不编造用户本人的星座、年龄、职业、所在地或其他未提供事实",
             "对方追问未提供的本人事实时，用自然反问或请对方猜，不得直接声明",
             "affirmation 不要机械复读确认，应结合上一句推进",
             "对方已回答的问题不要再答一遍",
             "用户最终反馈文本优先级高于模型习惯",
+            style_prefs["message_length_rule"],
+            style_prefs["emoji_rule"],
+            style_prefs["humor_rule"],
         ],
     }
 

@@ -1,93 +1,96 @@
 # wxChatAIAssistant
 
-一个在自己电脑上运行的关系型微信 AI 聊天助手。
+本地优先的关系型微信 AI 聊天助手。它帮助你按联系人关系、表达习惯和对话上下文生成回复草稿；微信读取、画像、设置和运行记录默认都留在自己的电脑上。
 
-它读取本机微信聊天数据，结合联系人关系、沟通风格和对话上下文，帮助你理解消息、生成并优化回复，以及在安全边界内处理自动回复。默认不会替你发送消息。
+> 默认不发送消息。自动回复默认关闭、默认 dry-run；L1/L2 必须人工确认，L3 直接拦截。
 
-## 实际界面
+![新版工作台：按联系人管理关系与草稿](docs/images/demo-draft.png)
 
-下图使用项目内置的“示例·好友”和一段虚构对话生成，展示了关系选择、候选回复、最终编辑和 dry-run 状态；不包含任何真实联系人或聊天记录。
+## 新版能力
 
-![wxChatAIAssistant 内置演示：为示例好友生成三条候选回复](docs/images/demo-draft.png)
+- **关系化联系人工作台**：为情侣、朋友、家人维护不同的称呼、边界、回复长度、表情和幽默偏好；可在左侧直接编辑关系类型或删除自己添加的联系人。
+- **多角色草稿生成**：`understand → style → writer → reviewer` 依次识别场景与风险、组合关系和个人风格、生成候选，并进行安全与质量审核。
+- **待确认回复中心**：默认按当前会话过滤，可切换查看全部会话；逐条查看上下文、修改候选，确认后才把批准文本交给发送执行器。
+- **受控自动化链路**：Watcher 读取白名单消息，Orchestrator 按 `watch → memory → draft → policy → operator/queue` 编排；Operator 只接收已批准的原文，负责会话校验、发送与结果验证。
+- **本地演示与模型回退**：演示模式可离线体验；也支持 Ollama 和 OpenAI 兼容接口，外部调用失败时回退到本地模板。
+- **更顺畅的本地体验**：公开启动资料会短时缓存在浏览器本地；待确认队列仍持续读取本地状态，避免用过期信息确认发送。
 
-## 它适合做什么
+## 安全模型
 
-- 给伴侣、朋友或家人分别设置不同的沟通方式。
-- 导入自己的聊天记录，提炼常用的回复长度、语气和表情习惯。
-- 根据当前连续对话中的一条或多条消息理解上下文，生成多条候选回复，并支持编辑为最终回复。
-- 用“演示模式”离线体验，不调用外部大模型。
-- 可选地监听白名单联系人；自动发送默认关闭，并默认只做 dry-run（只生成记录、不发消息）。
+| 风险级别 | 行为 |
+| --- | --- |
+| L0 | 可生成普通草稿；只有白名单、明确开启、关闭 dry-run 且通过策略门时才可能自动发送。 |
+| L1 / L2 | 进入待确认队列，必须由用户逐条确认或放弃。 |
+| L3 | 拦截，不生成可直接发送的候选。 |
 
-## 开始前
+草稿 Agent 不具备微信发送能力；真实发送只由无模型的 Operator 执行，且必须已有批准的原文。请勿将本工具用于未经对方同意的自动化沟通。
 
-需要 Windows、Python 3.10+ 和 Node.js。微信本地读取和受控发送功能面向 Windows 微信上运行的本地数据。
+## 快速开始
 
-## 三步启动
+需要 Windows、Python 3.10+ 和 Node.js。微信本地读取与受控发送面向 Windows 微信环境。
 
-1. 创建并安装 Python 环境：
+1. 创建虚拟环境并安装后端依赖：
 
    ```powershell
    python -m venv .venv
    .\.venv\Scripts\python.exe -m pip install -r requirements.txt
    ```
 
-2. 启动后端：
-
-   ```powershell
-   .\run.ps1
-   ```
-
-   打开 http://127.0.0.1:8787 。
-
-3. （可选）启动前端开发服务器：
+2. 构建前端并启动服务：
 
    ```powershell
    Set-Location frontend
    npm install
-   npm run dev
+   npm run build
+   Set-Location ..
+   .\run.ps1
    ```
 
-   若要让后端直接托管前端页面，改为执行 `npm run build`。
+3. 打开 [http://127.0.0.1:8787](http://127.0.0.1:8787)。
 
-## 使用方式
+开发前端时可改用：
 
-1. 在工作台中新建联系人，选择关系类型：`partner`、`friend` 或 `family`。
-2. 导入自己的聊天记录，或在演示模式下直接输入对话。
-3. 为收到的消息生成候选回复，选择或编辑后再发送。
-4. 如需使用监听功能，先只启用 dry-run，确认行为符合预期后再考虑开启真实发送。
+```powershell
+Set-Location frontend
+npm run dev
+```
 
-## 查看调用日志
+## 使用流程
 
-- 模型调用日志：`data/model-calls.jsonl`。只记录调用时间、提供方、模型、接口主机、耗时、HTTP 状态和脱敏错误，不记录 API Key、提示词、聊天正文或模型回复。
-- 自动回复日志：`data/automation-events.jsonl`。记录每次草稿生成、风险判定、发送动作与发送验证结果。
-- 自动回复状态：`data/automation-state.json`。记录游标、暂停状态、等待时间和待确认队列。
-- 服务控制台日志：运行 `./run.ps1` 的 PowerShell 窗口会显示 Uvicorn 请求与异常日志。
+1. 新建联系人，选择 `partner`、`friend` 或 `family`，补充称呼和表达偏好。
+2. 导入自己的聊天记录，或在演示模式下粘贴一段虚构对话。
+3. 在“手动生成”中产出候选，选择或编辑最终草稿。
+4. 如需监听微信消息，先只启用 dry-run，并从“待确认”工作台逐条审核。
+5. 只有在你明确接受风险并完成相关配置后，才考虑启用真实发送。
 
-实时查看最近日志：
+## 本地数据与隐私
+
+个人数据默认位于项目的 `data/` 目录：
+
+- `data/config.sqlite3`：联系人、模型和自动回复设置。
+- `data/messages.jsonl`、`data/feedback.jsonl`：导入记录与草稿反馈。
+- `data/self-skill/`：全局、关系和联系人级表达画像。
+- `data/automation-state.json`、`data/automation-events.jsonl`：自动化状态与动作记录。
+
+公开仓库不应包含 `data/`、`private/`、`.runtime/`、日志、环境变量或私钥。提交前请再次检查暂存区是否含个人数据。
+
+## 日志与排查
 
 ```powershell
 Get-Content .\data\model-calls.jsonl -Tail 20 -Wait
 Get-Content .\data\automation-events.jsonl -Tail 20 -Wait
 ```
 
-服务运行时也可以访问：
+服务运行后，也可查看：
 
 ```text
 GET http://127.0.0.1:8787/api/logs/model-calls?limit=50
 GET http://127.0.0.1:8787/api/automation/events?limit=50
 ```
 
-Windows 微信 4.1 的主界面是自绘窗口。真实发送会在选中搜索结果后，使用系统内置的简体中文 OCR 只识别右侧顶部标题栏；标题与目标联系人不一致时会中止发送。OCR 临时图像在识别结束后立即删除，不采集消息列表或输入区。
+模型调用日志不会保存 API Key、提示词、聊天正文或模型回复。Windows 微信 4.1 的真实发送会使用系统 OCR 校验右侧顶部会话标题；目标不一致时会中止，临时图像会在识别后删除。
 
-## 隐私与安全
-
-本项目以本地优先为原则。聊天记录、联系人、表达画像、自动化事件、本机微信配置、截图、日志和 API Key 都只应保存在你的电脑上。
-
-公开仓库不会包含这些内容：`data/`、`private/`、`.runtime/`、`.claude/`、日志文件、环境变量文件和私钥文件均已加入 `.gitignore`。提交前仍建议运行 `git status --ignored` 和敏感信息扫描，确认没有个人数据进入暂存区。
-
-自动回复默认关闭；L1/L2 风险内容需要确认，L3 内容会被拦截。请勿把工具用于未经对方同意的自动化沟通。
-
-## 测试与检查
+## 检查
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
@@ -100,19 +103,18 @@ npm run build
 ## 项目结构
 
 ```text
-app/                    FastAPI 后端、回复生成和自动化逻辑
+app/agent/              LangGraph 草稿生成图
+app/runtime/            Watcher、PolicyGate 与自动化编排
+app/operator/           受控微信发送与发送后验证
 frontend/               React + Vite 工作台
-config/                 风险分级配置
-skills/relationships/   关系类型的沟通配置
-tests/                  自动化测试
-tools/                  本地导入工具
-docs/                   架构、命令和设计文档
+skills/relationships/   关系类型沟通配置
 data/                   本地个人数据（不会上传）
-private/                本机私密配置（不会上传）
+tests/                  自动化测试
+docs/                   架构、命令和设计文档
 ```
 
 ## 进一步阅读
 
 - [架构说明](docs/harness/architecture.md)
 - [常用命令](docs/harness/commands.md)
-- [开发约定](docs/harness/conventions.md)
+- [关系型微信助手设计](docs/relationship-wechat-assistant-design.md)

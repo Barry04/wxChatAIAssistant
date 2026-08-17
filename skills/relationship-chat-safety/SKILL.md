@@ -24,15 +24,15 @@ description: >-
 
 - [已验证] `generate_reply()` 委托 `app/agent/graph.py` 的 LangGraph 图：`understand → style → writer → reviewer`。
 - [已验证] L3 在 understand 后短路，不进入 writer。
-- [已验证] reviewer 可 `accept` / `revise`（最多 1 次）/ `block`；角色与工具不得发送微信。
+- [已验证] reviewer 可 `accept` / `revise`（最多 1 次）/ `block`；角色与工具不得发送微信。发送只经 `app/operator`，且必须已有用户或策略批准的原文。
 - [已验证] API 兼容原字段，并返回 `agent_mode`、`trace`、`review`、`style_brief`。
 
 ### 风险分级
 
 - [已验证] 先执行场景识别与风险分级，再生成候选。
-- [已验证] L0 允许普通草稿；只有白名单、启用且关闭 dry-run 时才允许自动发送。
+- [已验证] L0 允许普通草稿；只有白名单、启用、关闭 dry-run、已确认真实发送，且 PolicyGate 判定 `auto_send` 时才交给 Operator。
 - [已验证] L1 和 L2 只能进入待确认状态，不得自动发送。
-- [已验证] L3 不得生成可直接发送的候选，必须返回空候选和风险警告。
+- [已验证] L3 不得生成可直接发送的候选，必须返回空候选和风险警告；Policy 输出 `blocked`，不得把可发送候选交给 Operator。
 - [已验证] 高风险覆盖金钱、凭据、医疗、法律与合同相关内容；修改规则时同步检查优先级与测试。
 
 ### 关系策略
@@ -63,6 +63,7 @@ description: >-
 - 不要把演示模板的语气当作真实用户画像；历史反馈和联系人边界优先。
 - 不要因为模型调用可用而跳过本地规则或用户最终确认。
 - 不要在 agent 节点中直接调用微信发送。
+- 不要给 LLM 配备 `send_message` 工具，也不要引入 LLM Supervisor 自行选会话发送。
 
 ## 维护
 

@@ -17,6 +17,7 @@ skill/
 # Locally downloaded tools, logs, and editor-specific settings
 .runtime/
 .claude/
+.agents/
 @AutomationLog.txt
 *.log
 

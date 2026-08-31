@@ -23,8 +23,9 @@ description: >-
 ### 分层
 
 - [已验证] `app/main.py` 只负责 HTTP 路由、请求编排和静态文件托管；业务判断放在 `app/services.py`；自动回复循环委托 `app/runtime/orchestrator.py`，发送只经 `app/operator`。
+- [已验证] 自动回复由 `app/runtime/hub_graph.py` 编排 Watch/Memory/Draft Task；Hub 只能在代码白名单内路由，PolicyGate 与 Operator 保持确定性硬门禁。
 - [已验证] 新增或修改请求体时，先在 `app/models.py` 定义 Pydantic 模型。
-- [已验证] 文件路径、默认数据和 JSON/JSONL 读写统一放在 `app/storage.py`。
+- [已验证] 文件路径、默认数据和 JSON/JSONL 读写统一放在 `app/storage.py`。联系人事实记忆使用同一 `config.sqlite3`（`app/memory.py`），按 `contact_id` 隔离，不参与发送决策。
 
 ### 本地数据
 

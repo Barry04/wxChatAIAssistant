@@ -348,6 +348,64 @@ def _paste_text(text: str) -> None:
     time.sleep(0.15)
 
 
+def _paste_files(paths: list[str]) -> None:
+    files = [str(Path(path)) for path in paths if str(path).strip()]
+    if not files:
+        raise ValueError("附件路径为空")
+    encoded = ("\0".join(files) + "\0\0").encode("utf-16-le")
+    dropfiles_size = 20
+    total = dropfiles_size + len(encoded)
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    kernel32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
+    kernel32.GlobalAlloc.restype = ctypes.c_void_p
+    kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalLock.restype = ctypes.c_void_p
+    kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalUnlock.restype = ctypes.c_bool
+    kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalFree.restype = ctypes.c_void_p
+    user32.OpenClipboard.argtypes = [ctypes.c_void_p]
+    user32.OpenClipboard.restype = ctypes.c_bool
+    user32.EmptyClipboard.restype = ctypes.c_bool
+    user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+    user32.SetClipboardData.restype = ctypes.c_void_p
+    user32.CloseClipboard.restype = ctypes.c_bool
+    handle = kernel32.GlobalAlloc(0x0042, total)
+    if not handle:
+        raise RuntimeError("unable to allocate file clipboard memory")
+    try:
+        pointer = kernel32.GlobalLock(handle)
+        if not pointer:
+            raise RuntimeError("unable to lock file clipboard memory")
+        try:
+            payload = bytearray(total)
+            payload[0:4] = dropfiles_size.to_bytes(4, "little")
+            payload[16:20] = (1).to_bytes(4, "little")
+            payload[dropfiles_size:] = encoded
+            ctypes.memmove(pointer, bytes(payload), total)
+        finally:
+            kernel32.GlobalUnlock(handle)
+        if not user32.OpenClipboard(0):
+            raise RuntimeError("unable to open system clipboard")
+        try:
+            if not user32.EmptyClipboard():
+                raise RuntimeError("unable to clear system clipboard")
+            if not user32.SetClipboardData(15, handle):
+                raise RuntimeError("unable to set file clipboard data")
+            handle = 0
+        finally:
+            user32.CloseClipboard()
+    finally:
+        if handle:
+            kernel32.GlobalFree(handle)
+    _key_event(0x11)
+    _key_event(0x56)
+    _key_event(0x56, 0x0002)
+    _key_event(0x11, 0x0002)
+    time.sleep(0.35)
+
+
 def _press_enter() -> None:
     _key_event(0x0D)
     _key_event(0x0D, 0x0002)
@@ -366,6 +424,96 @@ def _window_point(window, x_ratio: float, y_ratio: float) -> tuple[int, int]:
         round(left + width * x_ratio),
         round(top + height * y_ratio),
     )
+
+
+def _find_quote_target(window, preview: str):
+    target = str(preview or "").strip()
+    if not target:
+        return None
+    matches = []
+    for control in _walk_controls(window, max_depth=12):
+        name = _normalized_control_name(control)
+        if not name or _contains_web_search_marker(control):
+            continue
+        if target not in name and name not in target:
+            continue
+        if control.ControlTypeName not in {
+            "TextControl",
+            "ListItemControl",
+            "ButtonControl",
+            "PaneControl",
+        }:
+            continue
+        _, top, _, _ = _rect_tuple(control)
+        matches.append((top, control))
+    matches.sort(key=lambda item: item[0])
+    return matches[-1][1] if matches else None
+
+
+def _invoke_quote(control) -> None:
+    clickable = _clickable_ancestor(control)
+    right_click = getattr(clickable, "RightClick", None)
+    if right_click:
+        right_click(waitTime=0)
+    else:
+        left, top, right, bottom = _rect_tuple(clickable)
+        _click_screen_point((left + right) // 2, (top + bottom) // 2)
+    time.sleep(0.35)
+    window = clickable
+    getter = getattr(clickable, "GetParentControl", None)
+    for _ in range(8):
+        current = getter() if getter else None
+        if current is None:
+            break
+        window = current
+        getter = getattr(current, "GetParentControl", None)
+    for menu in _walk_controls(window, max_depth=6):
+        name = _normalized_control_name(menu)
+        if menu.ControlTypeName in {"MenuItemControl", "TextControl", "ButtonControl"} and "引用" in name:
+            menu.Click(waitTime=0)
+            return
+    raise RuntimeError("找不到可引用气泡")
+
+
+def _find_mention_candidate(window, name: str):
+    target = str(name or "").strip()
+    if not target or "所有人" in target:
+        return None
+    matches = []
+    for control in _walk_controls(window, max_depth=12):
+        label = _normalized_control_name(control)
+        if not label or _contains_web_search_marker(control):
+            continue
+        if "所有人" in label:
+            continue
+        if label != target and target not in label:
+            continue
+        if control.ControlTypeName not in {
+            "ListItemControl",
+            "ButtonControl",
+            "TextControl",
+            "PaneControl",
+        }:
+            continue
+        _, top, _, _ = _rect_tuple(control)
+        matches.append((top, control))
+    matches.sort(key=lambda item: item[0])
+    return matches[0][1] if matches else None
+
+
+def _select_mentions(window, names: list[str]) -> None:
+    for name in names:
+        target = str(name or "").strip()
+        if not target or "所有人" in target:
+            raise RuntimeError("at_all_not_supported")
+        _paste_text("@")
+        time.sleep(0.35)
+        candidate = _find_mention_candidate(window, target)
+        if candidate is None:
+            raise RuntimeError("未能点选联系人提及")
+        clickable = _clickable_ancestor(candidate)
+        clickable.Click(waitTime=0)
+        time.sleep(0.2)
 
 
 def _normalized_title(value: str) -> str:
@@ -406,14 +554,24 @@ def _read_rendered_chat_title(window) -> str:
     return str(lines[0] if lines else payload.get("text") or "").strip()
 
 
-def _send_via_rendered_window(window, chat_name: str, text: str) -> dict[str, Any]:
+def _send_via_rendered_window(
+    window,
+    chat_name: str,
+    text: str,
+    files: list[str] | None = None,
+    quote_preview: str = "",
+    at_names: list[str] | None = None,
+) -> dict[str, Any]:
     """Use guarded coordinates for WeChat's self-rendered MMUI surface."""
+    files = [str(path) for path in (files or []) if str(path).strip()]
+    message = str(text or "").strip()
     if not _leave_web_search_page(window):
         raise RuntimeError("微信当前停留在搜一搜页面，未能返回聊天界面，已中止发送")
 
     # These ratios target the actual search and composer regions of the WeChat window.
     search_point = _window_point(window, 0.09, 0.08)
     editor_point = _window_point(window, 0.64, 0.86)
+    send_point = _window_point(window, 0.965, 0.952)
 
     window.SetFocus()
     time.sleep(0.2)
@@ -438,21 +596,40 @@ def _send_via_rendered_window(window, chat_name: str, text: str) -> dict[str, An
             f"实际“{opened_title or '未识别'}”，已中止发送"
         )
 
-    _click_screen_point(*editor_point)
-    _select_all()
-    _paste_text(text)
-    time.sleep(0.2)
-    final_title = _read_rendered_chat_title(window)
-    if _normalized_title(final_title) != _normalized_title(chat_name):
-        raise RuntimeError(
-            f"发送前 OCR 标题复验失败：期望“{chat_name}”，"
-            f"实际“{final_title or '未识别'}”，已中止发送"
+    quote_text = str(quote_preview or "").strip()
+    if quote_text:
+        target = _find_quote_target(window, quote_text)
+        if target is None:
+            raise RuntimeError("找不到可引用气泡")
+        _invoke_quote(target)
+        time.sleep(0.3)
+
+    mention_names = [str(name).strip() for name in (at_names or []) if str(name).strip()]
+    if mention_names:
+        if any("所有人" in name for name in mention_names):
+            raise RuntimeError("at_all_not_supported")
+        _click_screen_point(*editor_point)
+        _select_mentions(window, mention_names)
+
+    def _send_current_payload(paste) -> None:
+        _click_screen_point(*editor_point)
+        paste()
+        time.sleep(0.2)
+        final_title = _read_rendered_chat_title(window)
+        if _normalized_title(final_title) != _normalized_title(chat_name):
+            raise RuntimeError(
+                f"发送前 OCR 标题复验失败：期望“{chat_name}”，"
+                f"实际“{final_title or '未识别'}”，已中止发送"
+            )
+        _click_screen_point(*send_point)
+        time.sleep(0.5)
+
+    if files:
+        _send_current_payload(lambda: _paste_files(files))
+    if message:
+        _send_current_payload(
+            lambda: (_select_all(), _paste_text(message))
         )
-    # The rendered editor sometimes consumes VK_RETURN without sending.
-    # Clicking the visible send button is more deterministic for this surface.
-    send_point = _window_point(window, 0.965, 0.952)
-    _click_screen_point(*send_point)
-    time.sleep(0.5)
     return {
         "sent": True,
         "chat_name": chat_name,
@@ -576,11 +753,78 @@ def inspect_visible_controls(limit: int = 200) -> list[dict[str, Any]]:
 
 
 def send_wechat_message(chat_name: str, text: str) -> dict[str, Any]:
+    return _send_wechat_payload(chat_name, text=text)
+
+
+def send_wechat_files(chat_name: str, files: list[str]) -> dict[str, Any]:
+    return _send_wechat_payload(chat_name, files=files)
+
+
+def send_wechat_quote(chat_name: str, quote_preview: str, text: str) -> dict[str, Any]:
+    if not str(quote_preview or "").strip():
+        raise RuntimeError("找不到可引用气泡")
+    return _send_wechat_payload(
+        chat_name, text=text, quote_preview=quote_preview
+    )
+
+
+def send_wechat_mention(
+    chat_name: str,
+    at_names: list[str],
+    text: str,
+    quote_preview: str = "",
+) -> dict[str, Any]:
+    names = [str(name).strip() for name in at_names if str(name).strip()]
+    if any("所有人" in name for name in names):
+        raise RuntimeError("at_all_not_supported")
+    if not names:
+        raise RuntimeError("未能点选联系人提及")
+    return _send_wechat_payload(
+        chat_name, text=text, at_names=names, quote_preview=quote_preview
+    )
+
+
+def _send_wechat_payload(
+    chat_name: str,
+    text: str = "",
+    files: list[str] | None = None,
+    quote_preview: str = "",
+    at_names: list[str] | None = None,
+) -> dict[str, Any]:
     current_chat_name = _resolve_current_chat_name(chat_name)
+    files = [str(path) for path in (files or []) if str(path).strip()]
+    message = str(text or "").strip()
+    quote_text = str(quote_preview or "").strip()
+    mention_names = [str(name).strip() for name in (at_names or []) if str(name).strip()]
     if auto is None:
         raise RuntimeError("缺少 uiautomation 依赖")
-    if not chat_name.strip() or not text.strip():
-        raise ValueError("会话名称和回复文本不能为空")
+    if not chat_name.strip() or (not message and not files):
+        raise ValueError("会话名称和回复内容不能为空")
+
+    def _deliver(editor) -> None:
+        if quote_text:
+            target = _find_quote_target(window, quote_text)
+            if target is None:
+                raise RuntimeError("找不到可引用气泡")
+            _invoke_quote(target)
+            time.sleep(0.3)
+        if mention_names:
+            if any("所有人" in name for name in mention_names):
+                raise RuntimeError("at_all_not_supported")
+            editor.SetFocus()
+            editor.Click(waitTime=0)
+            _select_mentions(window, mention_names)
+        if files:
+            editor.SetFocus()
+            editor.Click(waitTime=0)
+            _paste_files(files)
+            _press_enter()
+            time.sleep(0.4)
+        if message:
+            editor.SetFocus()
+            editor.Click(waitTime=0)
+            _paste_text(message)
+            _press_enter()
 
     with _automation_context():
         window = _find_wechat_window()
@@ -618,10 +862,7 @@ def send_wechat_message(chat_name: str, text: str) -> dict[str, Any]:
                 message_editor = _find_message_editor(window, search_edit)
                 if message_editor is None:
                     raise RuntimeError("目标会话已验证，但未识别到消息输入框，已中止发送")
-                message_editor.SetFocus()
-                message_editor.Click(waitTime=0)
-                _paste_text(text)
-                _press_enter()
+                _deliver(message_editor)
                 return {
                     "sent": True,
                     "chat_name": current_chat_name,
@@ -634,7 +875,16 @@ def send_wechat_message(chat_name: str, text: str) -> dict[str, Any]:
             )
         stable_talker = _CHAT_IDENTITIES.get(chat_name.strip(), "")
         if stable_talker:
-            return _send_via_rendered_window(window, current_chat_name, text)
+            kwargs = {}
+            if files:
+                kwargs["files"] = files
+            if quote_text:
+                kwargs["quote_preview"] = quote_text
+            if mention_names:
+                kwargs["at_names"] = mention_names
+            return _send_via_rendered_window(
+                window, current_chat_name, message, **kwargs
+            )
         # The rendered fallback may only be used when the caller registered a
         # stable talker ID. Automation verifies the resulting message against
         # that same talker's database timeline before reporting success.

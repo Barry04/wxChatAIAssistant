@@ -1,4 +1,6 @@
 import json
+import re
+import shutil
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -28,6 +30,8 @@ PERSONA_FILE = SELF_SKILL_DIR / "persona.md"
 SELF_SKILL_META_FILE = SELF_SKILL_DIR / "meta.json"
 GIRLS_CHAT_STYLE_FILE = SELF_SKILL_DIR / "girls-chat-style.md"
 CONTACT_SKILL_DIR = SELF_SKILL_DIR / "contacts"
+APPROVED_ATTACHMENTS_DIR = DATA_DIR / "approved-attachments"
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
 DEFAULT_RUNTIME_SETTINGS = {
     "provider": "demo",
@@ -167,6 +171,7 @@ def ensure_storage() -> None:
         MODEL_CALLS_FILE.touch()
     SELF_SKILL_DIR.mkdir(parents=True, exist_ok=True)
     CONTACT_SKILL_DIR.mkdir(parents=True, exist_ok=True)
+    APPROVED_ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _connect_config_db() -> sqlite3.Connection:
@@ -255,6 +260,26 @@ def load_auto_reply_config() -> dict[str, Any]:
 def save_auto_reply_config(
     value: dict[str, Any],
 ) -> None:
+    # Persist only the supported automatic-send level. Older configurations
+    # may contain L1/L2/L3; they remain confirm-only and are normalized away
+    # when settings are next saved.
+    value = dict(value)
+    value["auto_send_levels"] = [
+        level for level in value.get("auto_send_levels", []) if level == "L0"
+    ]
+    contact_settings = value.get("contact_settings")
+    if isinstance(contact_settings, dict):
+        normalized_contacts: dict[str, Any] = {}
+        for contact_id, override in contact_settings.items():
+            normalized = dict(override or {})
+            if "auto_send_levels" in normalized:
+                normalized["auto_send_levels"] = [
+                    level
+                    for level in normalized.get("auto_send_levels", [])
+                    if level == "L0"
+                ]
+            normalized_contacts[contact_id] = normalized
+        value["contact_settings"] = normalized_contacts
     connection = _connect_config_db()
     try:
         connection.execute(
@@ -335,6 +360,65 @@ def append_jsonl(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(data, ensure_ascii=False) + "\n")
+
+
+def _safe_confirmation_dirname(confirmation_id: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", str(confirmation_id or "")).strip("._")
+    return safe or "item"
+
+
+def attachment_kind(name: str) -> str:
+    suffix = Path(name or "").suffix.lower()
+    return "image" if suffix in IMAGE_SUFFIXES else "file"
+
+
+def approved_attachment_dir(confirmation_id: str) -> Path:
+    return APPROVED_ATTACHMENTS_DIR / _safe_confirmation_dirname(confirmation_id)
+
+
+def save_approved_attachments(
+    confirmation_id: str,
+    files: list[tuple[str, bytes]],
+) -> list[dict[str, str]]:
+    target = approved_attachment_dir(confirmation_id)
+    if target.exists():
+        shutil.rmtree(target)
+    target.mkdir(parents=True, exist_ok=True)
+    stored: list[dict[str, str]] = []
+    used_names: set[str] = set()
+    for index, (name, payload) in enumerate(files[:5]):
+        if not payload or len(payload) > 20 * 1024 * 1024:
+            continue
+        base = Path(str(name or "file")).name or f"file-{index + 1}"
+        if base in {".", ".."}:
+            base = f"file-{index + 1}"
+        if base in used_names:
+            stem = Path(base).stem or "file"
+            base = f"{stem}-{index + 1}{Path(base).suffix}"
+        used_names.add(base)
+        path = target / base
+        path.write_bytes(payload)
+        stored.append(
+            {
+                "name": base,
+                "path": str(path),
+                "kind": attachment_kind(base),
+            }
+        )
+    return stored
+
+
+def list_approved_attachments(confirmation_id: str) -> list[Path]:
+    target = approved_attachment_dir(confirmation_id)
+    if not target.is_dir():
+        return []
+    return sorted(path for path in target.iterdir() if path.is_file())
+
+
+def clear_approved_attachments(confirmation_id: str) -> None:
+    target = approved_attachment_dir(confirmation_id)
+    if target.exists():
+        shutil.rmtree(target)
 
 
 def load_skill(skill_id: str) -> dict[str, Any]:

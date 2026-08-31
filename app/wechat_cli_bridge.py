@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .message_text import display_message_text
 from .storage import ROOT
 
 
@@ -208,8 +209,7 @@ def get_full_timeline(
 
 
 def _message_text(message: dict[str, Any]) -> str:
-    text = str(message.get("text") or "").strip()
-    return text or f"[{message.get('kind') or '消息'}]"
+    return display_message_text(message)
 
 
 def _message_timestamp(message: dict[str, Any]) -> int:

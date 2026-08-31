@@ -82,7 +82,9 @@ class AutoReplySettings(BaseModel):
 
 
 class AutomationConfirmationRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=200)
+    text: str = Field(default="", max_length=200)
+    quote: bool = False
+    at: bool = False
 
 
 class WeChatHistoryImportRequest(BaseModel):

@@ -1,5 +1,7 @@
 from typing import Any
 
+from app.message_text import display_message_text
+
 
 def ordered_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     indexed = list(enumerate(messages))
@@ -17,7 +19,5 @@ def conversation_text(messages: list[dict[str, Any]]) -> str:
     rows = []
     for message in ordered_messages(messages)[-12:]:
         speaker = "我" if message.get("is_from_me") else "对方"
-        rows.append(
-            f"{speaker}: {message.get('text') or '[' + str(message.get('kind')) + ']'}"
-        )
+        rows.append(f"{speaker}: {display_message_text(message)}")
     return "\n".join(rows)

@@ -22,6 +22,13 @@ def test_policy_allows_verified_l0_auto_send():
     assert result.decision == "auto_send"
 
 
+def test_policy_never_auto_sends_l1_or_l2_even_when_configured():
+    for level in ("L1", "L2"):
+        result = _policy(risk_level=level, auto_send_levels=[level])
+        assert result.decision == "needs_confirmation"
+        assert result.reason == "risk_confirmation"
+
+
 def test_demo_provider_never_auto_sends():
     result = _policy(provider="demo")
     assert result.decision == "needs_confirmation"

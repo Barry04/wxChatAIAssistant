@@ -49,6 +49,7 @@ from .storage import (
     load_all_skills,
     load_contacts,
     save_auto_reply_config,
+    save_approved_attachments,
     save_contacts,
     read_json,
     read_jsonl,
@@ -490,7 +491,16 @@ def automation_settings() -> dict:
     settings = AutoReplySettings(
         **load_auto_reply_config()
     )
-    return settings.model_dump()
+    payload = settings.model_dump()
+    payload["auto_send_levels"] = [
+        level for level in settings.auto_send_levels if level == "L0"
+    ]
+    for override in payload.get("contact_settings", {}).values():
+        if override.get("auto_send_levels") is not None:
+            override["auto_send_levels"] = [
+                level for level in override["auto_send_levels"] if level == "L0"
+            ]
+    return payload
 
 
 @app.put("/api/automation/settings")
@@ -502,7 +512,7 @@ def update_automation_settings(payload: AutoReplySettings) -> dict:
         )
     save_auto_reply_config(payload.model_dump())
     AUTOMATION_WORKER.wake()
-    return payload.model_dump()
+    return automation_settings()
 
 
 @app.get("/api/automation/contact-settings/{contact_id:path}")
@@ -532,7 +542,7 @@ def automation_contact_settings(contact_id: str) -> dict:
             "dry_run": effective.dry_run,
             "real_send_acknowledged": effective.real_send_acknowledged,
             "auto_send_levels": [
-                level for level in effective.auto_send_levels if level != "L3"
+                level for level in effective.auto_send_levels if level == "L0"
             ],
         },
         "has_override": override is not None,
@@ -554,7 +564,7 @@ def update_automation_contact_settings(
     }
     if "auto_send_levels" in values:
         values["auto_send_levels"] = [
-            level for level in values["auto_send_levels"] if level != "L3"
+            level for level in values["auto_send_levels"] if level == "L0"
         ]
     if (
         values.get("enabled")
@@ -590,7 +600,9 @@ async def automation_confirm(
     confirmation_id: str,
     payload: AutomationConfirmationRequest,
 ) -> dict:
-    result = await AUTOMATION_WORKER.confirm(confirmation_id, payload.text)
+    result = await AUTOMATION_WORKER.confirm(
+        confirmation_id, payload.text, quote=payload.quote, at=payload.at
+    )
     if not result.get("ok"):
         error = result.get("error")
         if error in {
@@ -598,6 +610,9 @@ async def automation_confirm(
             "real_send_not_acknowledged",
             "cycle_already_running",
             "contact_binding_changed",
+            "demo_provider",
+            "quote_target_missing",
+            "mention_target_missing",
         }:
             status_code = 409
         elif error == "confirmation_not_found":
@@ -609,6 +624,25 @@ async def automation_confirm(
             detail=error or result.get("event", {}).get("send_error"),
         )
     return result
+
+
+@app.post("/api/automation/pending/{confirmation_id}/attachments")
+async def upload_pending_attachments(
+    confirmation_id: str,
+    files: list[UploadFile] = File(...),
+) -> dict:
+    state = read_json(
+        AUTOMATION_STATE_FILE,
+        {"cursors": {}, "pending_confirmations": [], "paused": False},
+    )
+    pending = state.get("pending_confirmations", [])
+    if not any(item.get("id") == confirmation_id for item in pending):
+        raise HTTPException(status_code=404, detail="confirmation_not_found")
+    payloads: list[tuple[str, bytes]] = []
+    for upload in files[:5]:
+        payloads.append((upload.filename or "file", await upload.read()))
+    stored = save_approved_attachments(confirmation_id, payloads)
+    return {"attachments": stored}
 
 
 @app.delete("/api/automation/pending/{confirmation_id}")

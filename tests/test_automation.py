@@ -680,7 +680,7 @@ def test_full_auto_sends_verified_l0_directly(monkeypatch, tmp_path):
     assert sent == [("Contact A", "candidate reply")]
 
 
-def test_contact_level_override_allows_verified_l1_auto_send(monkeypatch, tmp_path):
+def test_contact_level_override_keeps_l1_in_confirmation_queue(monkeypatch, tmp_path):
     module, _, _ = _configure(
         monkeypatch,
         tmp_path,
@@ -717,9 +717,68 @@ def test_contact_level_override_allows_verified_l1_auto_send(monkeypatch, tmp_pa
 
     result = asyncio.run(AutomationWorker(lambda: "").run_once())
 
-    assert result["actions"][0]["action"] == "sent"
-    assert result["actions"][0]["send_verified"] is True
-    assert sent == [("Contact A", "candidate reply")]
+    assert result["actions"][0]["action"] == "needs_confirmation"
+    assert result["actions"][0]["send_verified"] is False
+    assert sent == []
+
+
+def test_automation_event_contains_hub_trace_without_credentials(monkeypatch, tmp_path):
+    module, _, events_file = _configure(monkeypatch, tmp_path, cursor=5)
+    monkeypatch.setattr(
+        module,
+        "get_timeline",
+        lambda *_args: {"messages": [_message(6, False, "incoming")]},
+    )
+
+    result = asyncio.run(AutomationWorker(lambda: "secret-key").run_once())
+
+    event = result["actions"][0]
+    assert event["orchestration_mode"] == "langgraph-hub"
+    assert event["hub_trace"]
+    assert {step["task"] for step in event["hub_trace"]} >= {
+        "hub",
+        "watch_read",
+        "memory_sync",
+        "watch_evaluate",
+        "draft",
+        "policy",
+        "queue",
+        "finish",
+    }
+    assert "secret-key" not in json.dumps(event, ensure_ascii=False)
+    persisted = json.loads(events_file.read_text(encoding="utf-8").strip())
+    assert persisted["orchestration_mode"] == "langgraph-hub"
+
+
+def test_hub_model_cannot_drop_an_actionable_incoming_turn(monkeypatch, tmp_path):
+    module, _, _ = _configure(monkeypatch, tmp_path, cursor=5)
+    import app.runtime.hub_graph as hub_graph
+
+    monkeypatch.setattr(
+        module,
+        "get_public_settings",
+        lambda: {
+            "provider": "openai-compatible",
+            "base_url": "http://hub.test",
+            "model": "hub-test",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "get_timeline",
+        lambda *_args: {"messages": [_message(6, False, "incoming")]},
+    )
+
+    async def fake_hub_completion(*_args, **_kwargs):
+        return '{"next_task":"finish"}'
+
+    monkeypatch.setattr(hub_graph, "chat_completion", fake_hub_completion)
+    result = asyncio.run(AutomationWorker(lambda: "secret-key").run_once())
+
+    assert result["actions"][0]["action"] == "needs_confirmation"
+    hub_steps = result["actions"][0]["hub_trace"]
+    assert any(step["decision_source"] == "rule_guard" for step in hub_steps)
+    assert any(step["task"] == "draft" for step in hub_steps)
 
 
 def test_unverified_send_keeps_cursor_for_retry(monkeypatch, tmp_path):
@@ -1009,6 +1068,61 @@ def test_confirmation_sends_and_verifies(monkeypatch, tmp_path):
     assert json.loads(state_file.read_text())["pending_confirmations"] == []
 
 
+def test_pending_confirmation_keeps_quote_target(monkeypatch, tmp_path):
+    module, state_file, _ = _configure(monkeypatch, tmp_path, cursor=5)
+    monkeypatch.setattr(
+        module,
+        "get_timeline",
+        lambda *_args: {"messages": [_message(6, False, "周末一起吃饭吗")]},
+    )
+
+    asyncio.run(AutomationWorker(lambda: "").run_once())
+    item = json.loads(state_file.read_bytes().decode("utf-8"))["pending_confirmations"][0]
+
+    assert item["quote_local_id"] == 6
+    assert item["quote_preview"] == "周末一起吃饭吗"
+
+
+def test_pending_group_keeps_at_target_from_sender(monkeypatch, tmp_path):
+    module, state_file, _ = _configure(monkeypatch, tmp_path, cursor=5)
+    _update_first_contact(chat_type="group", group_trigger_mode="all_messages")
+    monkeypatch.setattr(
+        module,
+        "get_timeline",
+        lambda *_args: {
+            "messages": [
+                {
+                    "id": {"local_id": 6},
+                    "is_from_me": False,
+                    "text": "周末一起吃饭吗",
+                    "kind": "text",
+                    "sender_name": "张三",
+                    "sender_wxid": "wxid-zhang",
+                }
+            ]
+        },
+    )
+
+    asyncio.run(AutomationWorker(lambda: "").run_once())
+    item = json.loads(state_file.read_bytes().decode("utf-8"))["pending_confirmations"][0]
+
+    assert item["at_targets"] == [{"name": "张三", "wxid": "wxid-zhang"}]
+
+
+def test_pending_private_chat_has_no_at_targets(monkeypatch, tmp_path):
+    module, state_file, _ = _configure(monkeypatch, tmp_path, cursor=5)
+    monkeypatch.setattr(
+        module,
+        "get_timeline",
+        lambda *_args: {"messages": [_message(6, False, "周末一起吃饭吗")]},
+    )
+
+    asyncio.run(AutomationWorker(lambda: "").run_once())
+    item = json.loads(state_file.read_bytes().decode("utf-8"))["pending_confirmations"][0]
+
+    assert item["at_targets"] == []
+
+
 def test_confirmation_rejects_stale_talker_binding(monkeypatch, tmp_path):
     module, state_file, _ = _configure(
         monkeypatch, tmp_path, cursor=5, acknowledged=True
@@ -1121,6 +1235,100 @@ def test_confirmation_verification_failure_keeps_queue(monkeypatch, tmp_path):
     state = json.loads(state_file.read_text(encoding="utf-8"))
     assert len(state["pending_confirmations"]) == 1
     assert state["pending_confirmations"][0]["attempts"] == 1
+
+
+def test_confirmation_sends_approved_attachments(monkeypatch, tmp_path):
+    import app.storage as storage
+
+    module, state_file, _ = _configure(
+        monkeypatch, tmp_path, cursor=5, acknowledged=True, provider="ollama"
+    )
+    attachments_root = tmp_path / "approved-attachments"
+    monkeypatch.setattr(storage, "APPROVED_ATTACHMENTS_DIR", attachments_root)
+    monkeypatch.setattr(
+        module,
+        "get_timeline",
+        lambda *_args: {"messages": [_message(6, False, "incoming")]},
+    )
+    sent_files: list[str] = []
+    monkeypatch.setattr(
+        operator_agent,
+        "send_wechat_files",
+        lambda _name, paths: sent_files.extend(paths) or {"sent": True},
+    )
+    monkeypatch.setattr(
+        operator_agent,
+        "send_wechat_message",
+        lambda *_args, **_kwargs: {"sent": True},
+    )
+    monkeypatch.setattr(
+        operator_agent,
+        "get_timeline",
+        lambda *_args: {
+            "messages": [
+                {"id": {"local_id": 7}, "is_from_me": True, "text": "", "kind": "image"},
+                {
+                    "id": {"local_id": 8},
+                    "is_from_me": True,
+                    "text": "edited reply",
+                    "kind": "text",
+                },
+            ]
+        },
+    )
+
+    asyncio.run(AutomationWorker(lambda: "").run_once())
+    confirmation_id = json.loads(state_file.read_text())["pending_confirmations"][0][
+        "id"
+    ]
+    image = tmp_path / "photo.png"
+    image.write_bytes(b"png")
+    stored = storage.save_approved_attachments(
+        confirmation_id, [("photo.png", image.read_bytes())]
+    )
+    _update_auto_reply(dry_run=False)
+
+    result = asyncio.run(
+        AutomationWorker(lambda: "").confirm(confirmation_id, "edited reply")
+    )
+
+    assert result["ok"] is True
+    assert sent_files == [stored[0]["path"]]
+
+
+def test_confirmation_rejects_media_in_demo(monkeypatch, tmp_path):
+    import app.storage as storage
+
+    module, state_file, _ = _configure(
+        monkeypatch, tmp_path, cursor=5, acknowledged=True, provider="demo"
+    )
+    monkeypatch.setattr(storage, "APPROVED_ATTACHMENTS_DIR", tmp_path / "approved")
+    monkeypatch.setattr(
+        module,
+        "get_timeline",
+        lambda *_args: {"messages": [_message(6, False, "incoming")]},
+    )
+    monkeypatch.setattr(
+        operator_agent,
+        "send_wechat_files",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("demo 不得真实发送媒体")
+        ),
+    )
+
+    asyncio.run(AutomationWorker(lambda: "").run_once())
+    confirmation_id = json.loads(state_file.read_text())["pending_confirmations"][0][
+        "id"
+    ]
+    storage.save_approved_attachments(confirmation_id, [("photo.png", b"png")])
+    _update_auto_reply(dry_run=False)
+
+    result = asyncio.run(
+        AutomationWorker(lambda: "").confirm(confirmation_id, "edited reply")
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "demo_provider"
 
 
 def test_contact_settings_are_independent(monkeypatch, tmp_path):

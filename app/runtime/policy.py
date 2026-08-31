@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from typing import Literal
 
-AUTO_SENDABLE_LEVELS = {"L0", "L1", "L2"}
+# Automatic sending is intentionally limited to ordinary L0 chat. L1/L2
+# remain draftable but always require an explicit confirmation.
+AUTO_SENDABLE_LEVELS = {"L0"}
 
 PolicyDecision = Literal["auto_send", "needs_confirmation", "blocked"]
 

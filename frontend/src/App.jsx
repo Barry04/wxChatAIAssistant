@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Activity,
   Check,
   Clipboard,
   ChevronDown,
@@ -9,6 +10,7 @@ import {
   Home,
   LoaderCircle,
   MessageCircle,
+  Paperclip,
   Pause,
   Pencil,
   Plus,
@@ -26,6 +28,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import OperationsPage from './OperationsPage.jsx'
 import './App.css'
 import './Modern.css'
 
@@ -37,8 +40,6 @@ const relationshipMeta = {
 
 const autoSendLevelOptions = [
   { level: 'L0', label: 'L0 日常聊天' },
-  { level: 'L1', label: 'L1 轻度计划/提醒' },
-  { level: 'L2', label: 'L2 敏感关系场景' },
 ]
 
 const lengthLabels = {
@@ -62,6 +63,14 @@ const humorLabels = {
 
 const BOOTSTRAP_CACHE_KEY = 'wx-chat-assistant:bootstrap:v1'
 const BOOTSTRAP_CACHE_TTL_MS = 2 * 60 * 1000
+const GLOBAL_PENDING_PATH = '/pending'
+const OPERATIONS_PATH = '/operations'
+
+function getAppPage() {
+  if (window.location.pathname === GLOBAL_PENDING_PATH) return 'pending'
+  if (window.location.pathname === OPERATIONS_PATH) return 'operations'
+  return 'workspace'
+}
 
 function readBootstrapCache() {
   try {
@@ -97,7 +106,7 @@ function writeBootstrapCache(data) {
 function formatAutoSendMode(settings, wechatStatus) {
   if (!settings?.enabled || settings?.dry_run) return 'Dry-run'
   const levels = (settings.auto_send_levels || ['L0']).filter(
-    (level) => level !== 'L3',
+    (level) => level === 'L0',
   )
   const levelText = levels.length ? levels.join('、') : '无自动发送级别'
   if (!wechatStatus?.running || !wechatStatus?.logged_in) {
@@ -200,6 +209,8 @@ function AutomationFlowGraph({ events }) {
   const latest = events[events.length - 1]
   const latestAgent = latest?.agent || ''
   const latestAction = latest?.action || ''
+  const hubTrace = latest?.hub_trace || []
+  const latestHub = [...hubTrace].reverse().find((step) => step.task === 'hub')
   const policyRoute =
     latestAction === 'needs_confirmation'
       ? 'confirmation'
@@ -209,47 +220,87 @@ function AutomationFlowGraph({ events }) {
           ? 'blocked'
           : ''
   const nodes = [
-    { id: 'watch', label: 'Watch', caption: '读取白名单新消息', icon: Database },
-    { id: 'memory', label: 'Memory', caption: '同步已完成回合', icon: Clipboard },
-    { id: 'draft', label: 'Draft', caption: '生成候选回复', icon: Sparkles },
-    { id: 'policy', label: 'Policy', caption: '判定发送策略', icon: ShieldCheck },
+    { id: 'watch_read', label: 'Watch Task', caption: '读取并判定新消息', icon: Database },
+    { id: 'memory_sync', label: 'Memory Task', caption: '同步已完成回合', icon: Clipboard },
+    { id: 'draft', label: 'Draft Task', caption: '运行草稿子图', icon: Sparkles },
   ]
+  const policyNode = { id: 'policy', label: 'Policy Gate', caption: '代码硬门禁', icon: ShieldCheck }
+  const PolicyIcon = policyNode.icon
 
   return (
     <section className="automation-flow" aria-label="自动化 Agent 流转图">
       <div className="automation-flow-header">
         <div>
-          <span className="eyebrow">自动化流转</span>
-          <strong>消息不会绕过策略门直接发送</strong>
+          <span className="eyebrow">Hub Orchestration</span>
+          <strong>Task 完成后回到 Hub 决策，发送仍受代码门禁</strong>
         </div>
         {latest && (
           <span className="automation-flow-latest">
-            最近：{latest.agent || '系统'} · {latestAction || '待运行'}
+            {latest.orchestration_mode === 'langgraph-hub' ? 'HUB' : latest.agent || '系统'} ·{' '}
+            {latestAction || '待运行'}
           </span>
         )}
       </div>
-      <div className="automation-flow-track">
+      <div className="automation-flow-hub-track">
+        <div className="automation-flow-task-stack">
         {nodes.map((node, index) => {
           const NodeIcon = node.icon
+          const steps = hubTrace.filter((step) => step.task === node.id)
+          const step = steps[steps.length - 1]
+          const isCurrent = latestHub?.next_task === node.id
           return (
-            <div className="automation-flow-segment" key={node.id}>
+            <div className="automation-flow-task-wrap" key={node.id}>
               <article
                 className={`automation-flow-node ${
-                  latestAgent === node.id ? 'is-current' : ''
-                }`}
+                  isCurrent || (latestAgent === node.id && !hubTrace.length) ? 'is-current' : ''
+                } ${step?.status === 'fallback' ? 'is-fallback' : ''}`}
               >
                 <NodeIcon size={15} aria-hidden="true" />
                 <span>
                   <strong>{node.label}</strong>
-                  <small>{node.caption}</small>
+                  <small>{step?.reason_code || node.caption}</small>
                 </span>
+                {typeof step?.duration_ms === 'number' && (
+                  <em>{step.duration_ms}ms</em>
+                )}
               </article>
-              {index < nodes.length - 1 && (
-                <span className="automation-flow-arrow" aria-hidden="true" />
-              )}
+              {index < nodes.length - 1 && <span className="automation-flow-task-arrow" aria-hidden="true" />}
             </div>
           )
         })}
+        </div>
+        <span className="automation-flow-hub-arrow" aria-hidden="true" />
+        <article className={`automation-flow-hub-node ${latestHub ? 'is-current' : ''}`}>
+          <div className="automation-flow-hub-icon">
+            <Sparkles size={16} aria-hidden="true" />
+          </div>
+          <span>
+            <strong>Hub 决策</strong>
+            <small>HUB_REASON · {latestHub?.reason_code || '等待下一轮'}</small>
+            <em>
+              {latestHub?.decision_source === 'model'
+                ? '真实模型路由'
+                : latestHub?.decision_source === 'fallback'
+                  ? '规则回退'
+                  : '安全规则路由'}
+            </em>
+          </span>
+        </article>
+      </div>
+      <div className="automation-flow-track automation-flow-policy-track">
+        <div className="automation-flow-segment">
+          <article
+            className={`automation-flow-node ${
+              latestAgent === policyNode.id ? 'is-current' : ''
+            }`}
+          >
+            <PolicyIcon size={15} aria-hidden="true" />
+            <span>
+              <strong>{policyNode.label}</strong>
+              <small>{policyNode.caption}</small>
+            </span>
+          </article>
+        </div>
         <div className="automation-flow-branches">
           <article
             className={`automation-flow-branch ${
@@ -306,10 +357,46 @@ function summarizeContactCheck(contact, actions = []) {
   return `已检查${contact.display_name}，本次状态：${action.action || '无可发送回复'}`
 }
 
+function AttachmentPicker({ files, onChange, inputId }) {
+  return (
+    <label className="pending-attachments" htmlFor={inputId}>
+      <span>已批准附件</span>
+      <div className="pending-attachment-row">
+        <input
+          id={inputId}
+          type="file"
+          multiple
+          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt"
+          onChange={(event) =>
+            onChange(Array.from(event.target.files || []).slice(0, 5))
+          }
+        />
+        <span className="pending-attachment-button">
+          <Paperclip size={15} />
+          {files.length ? `已选 ${files.length} 个文件` : '添加图片或文件'}
+        </span>
+      </div>
+      {files.length > 0 && (
+        <ul className="pending-attachment-list">
+          {files.map((file) => (
+            <li key={`${file.name}-${file.size}`}>{file.name}</li>
+          ))}
+        </ul>
+      )}
+    </label>
+  )
+}
+
 function PendingConfirmationList({
   pending,
   pendingDrafts,
   setPendingDrafts,
+  attachmentFiles = {},
+  onAttachmentsChange,
+  quoteEnabled = {},
+  onQuoteChange,
+  atEnabled = {},
+  onAtChange,
   working,
   onConfirm,
   onDiscard,
@@ -337,6 +424,30 @@ function PendingConfirmationList({
                 {item.incoming.slice(-2).join(' / ')}
               </p>
             )}
+            {item.quote_preview ? (
+              <label className="pending-quote-toggle">
+                <input
+                  type="checkbox"
+                  checked={quoteEnabled[item.id] ?? true}
+                  onChange={(event) =>
+                    onQuoteChange?.(item.id, event.target.checked)
+                  }
+                />
+                将引用：{item.quote_preview}
+              </label>
+            ) : null}
+            {(item.at_targets || []).length > 0 ? (
+              <label className="pending-quote-toggle">
+                <input
+                  type="checkbox"
+                  checked={atEnabled[item.id] ?? true}
+                  onChange={(event) =>
+                    onAtChange?.(item.id, event.target.checked)
+                  }
+                />
+                将 @ {(item.at_targets || []).map((target) => target.name).join('、')}
+              </label>
+            ) : null}
             {(item.candidate_options?.length
               ? item.candidate_options
               : [item.candidate]
@@ -372,6 +483,11 @@ function PendingConfirmationList({
               maxLength={200}
               aria-label={`编辑${item.display_name}的候选回复`}
             />
+            <AttachmentPicker
+              inputId={`pending-files-${item.id}`}
+              files={attachmentFiles[item.id] || []}
+              onChange={(files) => onAttachmentsChange?.(item.id, files)}
+            />
             <div className="pending-actions">
               <button
                 type="button"
@@ -379,7 +495,10 @@ function PendingConfirmationList({
                 onClick={() => onConfirm(item)}
                 disabled={
                   Boolean(working) ||
-                  !(pendingDrafts[item.id] || item.candidate || '').trim()
+                  !(
+                    (pendingDrafts[item.id] || item.candidate || '').trim() ||
+                    (attachmentFiles[item.id] || []).length
+                  )
                 }
               >
                 {working === `confirm:${item.id}` ? (
@@ -409,19 +528,49 @@ function PendingConfirmationList({
 function PendingWorkbench({
   pending,
   selectedContact,
-  scope,
-  setScope,
+  view = 'current',
   pendingDrafts,
   setPendingDrafts,
+  attachmentFiles = {},
+  onAttachmentsChange,
+  quoteEnabled = {},
+  onQuoteChange,
+  atEnabled = {},
+  onAtChange,
   working,
   onConfirm,
   onDiscard,
+  onOpenAll,
+  onOpenContact,
+  canOpenContact = () => true,
 }) {
   const [activeId, setActiveId] = useState('')
-  const showingCurrentContact = scope === 'current' && Boolean(selectedContact)
-  const visiblePending = showingCurrentContact
-    ? pending.filter((item) => item.contact_id === selectedContact.contact_id)
-    : pending
+  const showingCurrentContact = view === 'current'
+  const visiblePending = useMemo(
+    () =>
+      showingCurrentContact && selectedContact
+        ? pending.filter((item) => item.contact_id === selectedContact.contact_id)
+        : showingCurrentContact
+          ? []
+          : pending,
+    [pending, selectedContact, showingCurrentContact],
+  )
+  const pendingGroups = Array.from(
+    visiblePending
+      .reduce((groups, item) => {
+        const key = item.contact_id || item.display_name || item.id
+        if (!groups.has(key)) {
+          groups.set(key, {
+            contactId: item.contact_id,
+            displayName: item.display_name || '未知联系人',
+            items: [],
+          })
+        }
+        groups.get(key).items.push(item)
+        return groups
+      }, new Map())
+      .values(),
+  )
 
   useEffect(() => {
     if (!visiblePending.some((item) => item.id === activeId)) {
@@ -437,32 +586,30 @@ function PendingWorkbench({
     <section className="pending-workspace">
       <header className="pending-workspace-header">
         <div>
-          <span className="eyebrow">人工确认</span>
-          <h2>逐条检查，再决定是否发送</h2>
+          <span className="eyebrow">
+            {showingCurrentContact ? '当前会话' : '全局收件箱'}
+          </span>
+          <h2>
+            {showingCurrentContact ? '当前会话待确认' : '全部会话待确认'}
+          </h2>
           <p>
             {showingCurrentContact
-              ? `仅显示“${selectedContact.display_name}”的待确认回复。`
-              : '左侧选择消息，右侧确认上下文、候选和最终发送文本。'}
+              ? selectedContact
+                ? `仅显示“${selectedContact.display_name}”的待确认回复。`
+                : '请先选择一个联系人。'
+              : '按联系人分组查看全部待确认回复，可逐条确认、放弃或返回对应会话。'}
           </p>
         </div>
         <div className="pending-header-actions">
-          <div className="pending-scope" role="group" aria-label="待确认回复筛选">
+          {showingCurrentContact && pending.length > visiblePending.length && (
             <button
               type="button"
-              className={showingCurrentContact ? 'active' : ''}
-              onClick={() => setScope('current')}
-              disabled={!selectedContact}
+              className="button secondary pending-global-link"
+              onClick={onOpenAll}
             >
-              当前会话
+              查看全部 {pending.length} 条
             </button>
-            <button
-              type="button"
-              className={!showingCurrentContact ? 'active' : ''}
-              onClick={() => setScope('all')}
-            >
-              全部会话
-            </button>
-          </div>
+          )}
           <div className="pending-workspace-stats">
             <span>
               <strong>{visiblePending.length}</strong> 待处理
@@ -479,28 +626,42 @@ function PendingWorkbench({
           <ShieldCheck size={30} />
           <strong>
             {showingCurrentContact
-              ? `${selectedContact.display_name} 暂无待确认回复`
+              ? `${selectedContact?.display_name || '当前会话'} 暂无待确认回复`
               : '队列已经清空'}
           </strong>
           <p>
             {showingCurrentContact && pending.length > 0
-              ? '可以切换到“全部会话”查看其他联系人的待确认回复。'
+              ? '其他联系人仍有待确认回复，可前往全局收件箱处理。'
               : '新的待确认回复会出现在这里，不会自动发送。'}
           </p>
           {showingCurrentContact && pending.length > 0 && (
             <button
               type="button"
               className="button secondary"
-              onClick={() => setScope('all')}
+              onClick={onOpenAll}
             >
-              查看全部会话
+              打开全部待确认
             </button>
           )}
         </div>
       ) : (
         <div className="pending-workbench-grid">
-          <nav className="pending-inbox" aria-label="待确认消息">
-            {visiblePending.map((item) => {
+          <nav
+            className={`pending-inbox ${showingCurrentContact ? '' : 'is-grouped'}`}
+            aria-label="待确认消息"
+          >
+            {(showingCurrentContact
+              ? [{ contactId: selectedContact?.contact_id, items: visiblePending }]
+              : pendingGroups
+            ).map((group) => (
+              <section className="pending-inbox-group" key={group.contactId || 'current'}>
+                {!showingCurrentContact && (
+                  <div className="pending-inbox-group-heading">
+                    <span>{group.displayName}</span>
+                    <strong>{group.items.length} 条</strong>
+                  </div>
+                )}
+                {group.items.map((item) => {
               const incoming = item.incoming?.slice(-2).join(' / ') || '无可用上下文'
               const preview =
                 pendingDrafts[item.id] || item.candidate || '等待填写回复'
@@ -523,7 +684,9 @@ function PendingWorkbench({
                   <span className="pending-inbox-preview">{preview}</span>
                 </button>
               )
-            })}
+                })}
+              </section>
+            ))}
           </nav>
 
           {activeItem && (
@@ -539,10 +702,53 @@ function PendingWorkbench({
                 </span>
               </div>
 
+              {!showingCurrentContact && (
+                <button
+                  type="button"
+                  className="button ghost pending-open-contact"
+                  onClick={() => onOpenContact(activeItem.contact_id)}
+                  disabled={!canOpenContact(activeItem.contact_id)}
+                  title={
+                    canOpenContact(activeItem.contact_id)
+                      ? '返回这个联系人的当前会话'
+                      : '该联系人已不在工作台中'
+                  }
+                >
+                  <MessageCircle size={16} />
+                  {canOpenContact(activeItem.contact_id)
+                    ? '回到该会话'
+                    : '联系人未在工作台'}
+                </button>
+              )}
+
               <div className="pending-context-card">
                 <span>对方最新消息</span>
                 <p>{activeItem.incoming?.slice(-2).join('\n') || '无可用上下文'}</p>
               </div>
+              {activeItem.quote_preview ? (
+                <label className="pending-quote-toggle">
+                  <input
+                    type="checkbox"
+                    checked={quoteEnabled[activeItem.id] ?? true}
+                    onChange={(event) =>
+                      onQuoteChange?.(activeItem.id, event.target.checked)
+                    }
+                  />
+                  将引用：{activeItem.quote_preview}
+                </label>
+              ) : null}
+              {(activeItem.at_targets || []).length > 0 ? (
+                <label className="pending-quote-toggle">
+                  <input
+                    type="checkbox"
+                    checked={atEnabled[activeItem.id] ?? true}
+                    onChange={(event) =>
+                      onAtChange?.(activeItem.id, event.target.checked)
+                    }
+                  />
+                  将 @ {(activeItem.at_targets || []).map((target) => target.name).join('、')}
+                </label>
+              ) : null}
 
               <div className="pending-option-group">
                 <span>选择一个候选</span>
@@ -592,6 +798,11 @@ function PendingWorkbench({
                   maxLength={200}
                 />
               </label>
+              <AttachmentPicker
+                inputId={`workbench-files-${activeItem.id}`}
+                files={attachmentFiles[activeItem.id] || []}
+                onChange={(files) => onAttachmentsChange?.(activeItem.id, files)}
+              />
 
               <div className="pending-review-actions">
                 <button
@@ -609,7 +820,10 @@ function PendingWorkbench({
                   onClick={() => onConfirm(activeItem)}
                   disabled={
                     Boolean(working) ||
-                    !(pendingDrafts[activeItem.id] || activeItem.candidate || '').trim()
+                    !(
+                      (pendingDrafts[activeItem.id] || activeItem.candidate || '').trim() ||
+                      (attachmentFiles[activeItem.id] || []).length
+                    )
                   }
                 >
                   {working === `confirm:${activeItem.id}` ? (
@@ -659,6 +873,22 @@ async function api(path, options = {}) {
     throw new Error(message)
   }
   return response.json()
+}
+
+async function confirmPendingSend(item, text, files = [], quote = false, at = false) {
+  if (files.length) {
+    const form = new FormData()
+    files.forEach((file) => form.append('files', file))
+    await api(
+      `/api/automation/pending/${encodeURIComponent(item.id)}/attachments`,
+      { method: 'POST', body: form },
+    )
+  }
+  return api(`/api/automation/confirm/${encodeURIComponent(item.id)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, quote, at }),
+  })
 }
 
 function IconButton({ label, children, className = '', ...props }) {
@@ -725,11 +955,14 @@ function App() {
   const [modal, setModal] = useState('')
   const [mobileSidebar, setMobileSidebar] = useState(false)
   const [activeStylePresetId, setActiveStylePresetId] = useState('style:balanced')
+  const [appPage, setAppPage] = useState(getAppPage)
   const [workspaceMode, setWorkspaceMode] = useState('draft')
-  const [pendingScope, setPendingScope] = useState('current')
   const [pendingCount, setPendingCount] = useState(0)
   const [pendingItems, setPendingItems] = useState([])
   const [pendingDrafts, setPendingDrafts] = useState({})
+  const [pendingAttachments, setPendingAttachments] = useState({})
+  const [quoteEnabled, setQuoteEnabled] = useState({})
+  const [atEnabled, setAtEnabled] = useState({})
   const lastPendingL1Ids = useRef(null)
 
   const selectedContact = useMemo(
@@ -742,6 +975,20 @@ function App() {
     [skills, selectedContact],
   )
 
+  const currentPendingCount = useMemo(
+    () =>
+      selectedContact
+        ? pendingItems.filter(
+            (item) => item.contact_id === selectedContact.contact_id,
+          ).length
+        : 0,
+    [pendingItems, selectedContact],
+  )
+
+  const isGlobalPending = appPage === 'pending'
+  const isOperations = appPage === 'operations'
+  const isGlobalPage = isGlobalPending || isOperations
+
   const selectableStylePresets = useMemo(
     () => stylePresets.filter((preset) => preset.id !== 'style:balanced'),
     [stylePresets],
@@ -752,10 +999,50 @@ function App() {
     window.setTimeout(() => setNotice(null), 3200)
   }
 
+  const navigateTo = (path) => {
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, '', path)
+    }
+    setAppPage(
+      path === GLOBAL_PENDING_PATH
+        ? 'pending'
+        : path === OPERATIONS_PATH
+          ? 'operations'
+          : 'workspace',
+    )
+  }
+
+  const openGlobalPending = () => {
+    navigateTo(GLOBAL_PENDING_PATH)
+    setMobileSidebar(false)
+  }
+
+  const openOperations = () => {
+    navigateTo(OPERATIONS_PATH)
+    setMobileSidebar(false)
+  }
+
+  const openContactWorkspace = (contactId, mode = 'draft') => {
+    if (!contacts.some((contact) => contact.contact_id === contactId)) {
+      showNotice('该待确认项对应的联系人已不在工作台中', 'error')
+      return
+    }
+    setSelectedId(contactId)
+    setWorkspaceMode(mode)
+    navigateTo('/')
+    setMobileSidebar(false)
+  }
+
   const refreshStats = async () => {
     const nextStats = await api('/api/stats')
     setStats(nextStats)
   }
+
+  useEffect(() => {
+    const handlePopState = () => setAppPage(getAppPage())
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
 
   useEffect(() => {
     const cached = readBootstrapCache()
@@ -1136,17 +1423,22 @@ function App() {
 
   const confirmWorkspacePending = async (item) => {
     const text = (pendingDrafts[item.id] || item.candidate || '').trim()
-    if (!text) return
+    const files = pendingAttachments[item.id] || []
+    const quote = Boolean(item.quote_preview) && (quoteEnabled[item.id] ?? true)
+    const at =
+      (item.at_targets || []).length > 0 && (atEnabled[item.id] ?? true)
+    if (!text && files.length === 0) return
     setBusy(`confirm:${item.id}`)
     try {
-      await api(`/api/automation/confirm/${encodeURIComponent(item.id)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      })
+      await confirmPendingSend(item, text, files, quote, at)
       const pending = await api('/api/automation/pending')
       setPendingCount(pending.length)
       setPendingItems(pending)
+      setPendingAttachments((current) => {
+        const next = { ...current }
+        delete next[item.id]
+        return next
+      })
       showNotice('已确认并交给发送执行器')
     } catch (error) {
       showNotice(error.message, 'error')
@@ -1230,76 +1522,102 @@ function App() {
           </IconButton>
         </div>
 
-        <div className="sidebar-heading">
-          <span>联系人</span>
-          <IconButton label="添加联系人" onClick={() => setModal('contact')}>
-            <Plus size={17} />
-          </IconButton>
-        </div>
+        <nav className="sidebar-nav" aria-label="主导航">
+          <button
+            type="button"
+            className={!isGlobalPage ? 'active' : ''}
+            onClick={() => navigateTo('/')}
+          >
+            <MessageCircle size={17} />
+            会话工作台
+          </button>
+          <button
+            type="button"
+            className={isGlobalPending ? 'active' : ''}
+            onClick={openGlobalPending}
+          >
+            <ShieldCheck size={17} />
+            待确认
+            {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
+          </button>
+          <button
+            type="button"
+            className={isOperations ? 'active' : ''}
+            onClick={openOperations}
+          >
+            <Activity size={17} />
+            运行记录
+          </button>
+        </nav>
 
-        <nav className="contact-list" aria-label="联系人">
-          {contacts.map((contact) => {
-            const meta = relationshipMeta[contact.relationship]
-            const RelationIcon = meta.icon
-            return (
-              <div className="contact-row" key={contact.contact_id}>
-                <button
-                  type="button"
-                  className={`contact-item ${
-                    selectedId === contact.contact_id ? 'active' : ''
-                  }`}
-                  onClick={() => {
-                    setSelectedId(contact.contact_id)
-                    if (workspaceMode === 'pending') {
-                      setPendingScope('current')
-                    } else {
-                      setWorkspaceMode('draft')
-                    }
-                    setMobileSidebar(false)
-                  }}
-                >
-                  <span
-                    className="contact-avatar"
-                    style={{ '--contact-color': meta.color }}
-                  >
-                    {contact.display_name.slice(0, 1)}
-                  </span>
-                  <span className="contact-copy">
-                    <strong>{contact.display_name}</strong>
-                    <small>
-                      <RelationIcon size={13} />
-                      {meta.label}
-                    </small>
-                  </span>
-                  {contact.is_demo && <span className="demo-dot">示例</span>}
-                </button>
-                <div className="contact-actions">
-                  <button
-                    type="button"
-                    className="contact-action contact-edit"
-                    aria-label={`编辑关系 ${contact.display_name}`}
-                    onClick={() => {
-                      setSelectedId(contact.contact_id)
-                      setModal('edit-contact')
-                    }}
-                  >
-                    <Pencil size={13} />
-                  </button>
-                  {!contact.is_demo && (
+        {!isGlobalPage && (
+          <>
+            <div className="sidebar-heading">
+              <span>联系人</span>
+              <IconButton label="添加联系人" onClick={() => setModal('contact')}>
+                <Plus size={17} />
+              </IconButton>
+            </div>
+
+            <nav className="contact-list" aria-label="联系人">
+              {contacts.map((contact) => {
+                const meta = relationshipMeta[contact.relationship]
+                const RelationIcon = meta.icon
+                return (
+                  <div className="contact-row" key={contact.contact_id}>
                     <button
                       type="button"
-                      className="contact-action contact-delete"
-                      aria-label={`删除联系人 ${contact.display_name}`}
-                      onClick={() => removeContact(contact)}
+                      className={`contact-item ${
+                        selectedId === contact.contact_id ? 'active' : ''
+                      }`}
+                      onClick={() => {
+                        openContactWorkspace(contact.contact_id, 'draft')
+                      }}
                     >
-                      <Trash2 size={13} />
+                      <span
+                        className="contact-avatar"
+                        style={{ '--contact-color': meta.color }}
+                      >
+                        {contact.display_name.slice(0, 1)}
+                      </span>
+                      <span className="contact-copy">
+                        <strong>{contact.display_name}</strong>
+                        <small>
+                          <RelationIcon size={13} />
+                          {meta.label}
+                        </small>
+                      </span>
+                      {contact.is_demo && <span className="demo-dot">示例</span>}
                     </button>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </nav>
+                    <div className="contact-actions">
+                      <button
+                        type="button"
+                        className="contact-action contact-edit"
+                        aria-label={`编辑关系 ${contact.display_name}`}
+                        onClick={() => {
+                          setSelectedId(contact.contact_id)
+                          setModal('edit-contact')
+                        }}
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      {!contact.is_demo && (
+                        <button
+                          type="button"
+                          className="contact-action contact-delete"
+                          aria-label={`删除联系人 ${contact.display_name}`}
+                          onClick={() => removeContact(contact)}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </nav>
+          </>
+        )}
 
         <div className="sidebar-footer">
           <ShieldCheck size={17} />
@@ -1319,8 +1637,14 @@ function App() {
             </IconButton>
             <div>
               <div className="title-line">
-                <h1>{selectedContact?.display_name || '选择联系人'}</h1>
-                {selectedContact && (
+                <h1>
+                  {isOperations
+                    ? '运行记录中心'
+                    : isGlobalPending
+                      ? '全部待确认'
+                    : selectedContact?.display_name || '选择联系人'}
+                </h1>
+                {!isGlobalPage && selectedContact && (
                   <span
                     className="relationship-tag"
                     style={{
@@ -1332,7 +1656,13 @@ function App() {
                   </span>
                 )}
               </div>
-              <p>{selectedSkill?.description || '建立联系人后开始生成草稿'}</p>
+              <p>
+                {isOperations
+                  ? '查看 Agent 调用、发送验证、错误详情和模型运行状态'
+                  : isGlobalPending
+                    ? '跨会话统一处理需要人工确认的回复'
+                  : selectedSkill?.description || '建立联系人后开始生成草稿'}
+              </p>
             </div>
           </div>
           <div className="topbar-actions">
@@ -1348,22 +1678,7 @@ function App() {
                 ? '微信数据与自动回复'
                 : '微信数据未连接'}
             </button>
-            {pendingCount > 0 && (
-              <button
-                type="button"
-                className={`connection-button pending ${
-                  workspaceMode === 'pending' ? 'active' : ''
-                }`}
-                onClick={() => {
-                  setPendingScope('current')
-                  setWorkspaceMode('pending')
-                }}
-              >
-                <ShieldCheck size={16} />
-                {pendingCount} 条待确认
-              </button>
-            )}
-            {selectedContact && (
+            {!isGlobalPage && selectedContact && (
               <IconButton
                 label="编辑联系人"
                 onClick={() => setModal('edit-contact')}
@@ -1371,7 +1686,7 @@ function App() {
                 <Pencil size={18} />
               </IconButton>
             )}
-            {selectedContact && !selectedContact.is_demo && (
+            {!isGlobalPage && selectedContact && !selectedContact.is_demo && (
               <IconButton label="删除联系人" onClick={removeContact}>
                 <Trash2 size={18} />
               </IconButton>
@@ -1380,7 +1695,7 @@ function App() {
               type="button"
               className="button secondary"
               onClick={() => setModal('import')}
-              disabled={!selectedContact}
+              disabled={!selectedContact || isGlobalPage}
             >
               <Upload size={17} />
               导入记录
@@ -1391,7 +1706,7 @@ function App() {
           </div>
         </header>
 
-        <nav className="workspace-nav" aria-label="工作区">
+        {!isGlobalPage && <nav className="workspace-nav" aria-label="工作区" role="tablist">
           <button
             type="button"
             className={workspaceMode === 'draft' ? 'active' : ''}
@@ -1403,28 +1718,71 @@ function App() {
           <button
             type="button"
             className={workspaceMode === 'pending' ? 'active' : ''}
-            onClick={() => {
-              setPendingScope('current')
-              setWorkspaceMode('pending')
-            }}
+            onClick={() => setWorkspaceMode('pending')}
           >
             <ShieldCheck size={16} />
             待确认
-            {pendingCount > 0 && <span>{pendingCount}</span>}
+            {currentPendingCount > 0 && <span>{currentPendingCount}</span>}
           </button>
-        </nav>
+        </nav>}
 
-        {workspaceMode === 'pending' ? (
+        {isOperations ? (
+          <OperationsPage
+            api={api}
+            contacts={contacts}
+            onOpenContact={(contactId) => openContactWorkspace(contactId, 'draft')}
+            onOpenPending={openGlobalPending}
+            onOpenWechat={() => setModal('wechat')}
+          />
+        ) : isGlobalPending ? (
           <PendingWorkbench
             pending={pendingItems}
-            selectedContact={selectedContact}
-            scope={pendingScope}
-            setScope={setPendingScope}
+            view="all"
             pendingDrafts={pendingDrafts}
             setPendingDrafts={setPendingDrafts}
+            attachmentFiles={pendingAttachments}
+            onAttachmentsChange={(id, files) =>
+              setPendingAttachments((current) => ({ ...current, [id]: files }))
+            }
+            quoteEnabled={quoteEnabled}
+            onQuoteChange={(id, enabled) =>
+              setQuoteEnabled((current) => ({ ...current, [id]: enabled }))
+            }
+            atEnabled={atEnabled}
+            onAtChange={(id, enabled) =>
+              setAtEnabled((current) => ({ ...current, [id]: enabled }))
+            }
             working={busy}
             onConfirm={confirmWorkspacePending}
             onDiscard={discardWorkspacePending}
+            onOpenContact={(contactId) => openContactWorkspace(contactId, 'pending')}
+            canOpenContact={(contactId) =>
+              contacts.some((contact) => contact.contact_id === contactId)
+            }
+          />
+        ) : workspaceMode === 'pending' ? (
+          <PendingWorkbench
+            pending={pendingItems}
+            selectedContact={selectedContact}
+            view="current"
+            pendingDrafts={pendingDrafts}
+            setPendingDrafts={setPendingDrafts}
+            attachmentFiles={pendingAttachments}
+            onAttachmentsChange={(id, files) =>
+              setPendingAttachments((current) => ({ ...current, [id]: files }))
+            }
+            quoteEnabled={quoteEnabled}
+            onQuoteChange={(id, enabled) =>
+              setQuoteEnabled((current) => ({ ...current, [id]: enabled }))
+            }
+            atEnabled={atEnabled}
+            onAtChange={(id, enabled) =>
+              setAtEnabled((current) => ({ ...current, [id]: enabled }))
+            }
+            working={busy}
+            onConfirm={confirmWorkspacePending}
+            onDiscard={discardWorkspacePending}
+            onOpenAll={openGlobalPending}
           />
         ) : (
           <>
@@ -1594,7 +1952,7 @@ function App() {
                   <div>
                     <strong>该联系人允许自动发送的风险级别</strong>
                     <span>
-                      默认只自动发送 L0；可以针对关系稳定、日常沟通较多的联系人开放 L1。
+                      仅 L0 日常聊天可以自动发送；L1/L2 始终进入人工确认队列，L3 始终拦截。
                     </span>
                   </div>
                   <div className="automation-level-options">
@@ -1629,7 +1987,7 @@ function App() {
                   {contactAutomationSettings.real_send_acknowledged
                     ? `该联系人已确认真实发送权限，当前自动发送级别：${(
                         contactAutomationSettings.auto_send_levels || ['L0']
-                      ).join('、')}。L3 始终禁止自动发送。`
+                      ).join('、')}。L1/L2 始终需要人工确认，L3 始终禁止自动发送。`
                     : '该联系人当前为安全模式：只生成候选，不会自动发到微信。'}
                 </div>
               </section>
@@ -1919,7 +2277,7 @@ function App() {
           </section>
         </div>
 
-        <section className="insight-bar">
+        <section className="insight-bar" aria-label="本地表达库统计">
           <div className="insight-summary">
             <Database size={18} />
             <div>
@@ -2137,6 +2495,10 @@ function App() {
             setSelfSkill(await api('/api/self-skill'))
           }}
           onAddContact={() => setModal('contact')}
+          onOpenOperations={() => {
+            setModal('')
+            openOperations()
+          }}
         />
       )}
 
@@ -2169,6 +2531,7 @@ function WeChatModal({
   onRefresh,
   onChanged,
   onAddContact,
+  onOpenOperations,
 }) {
   const [current, setCurrent] = useState(status)
   const [localContacts, setLocalContacts] = useState(contacts)
@@ -2180,6 +2543,9 @@ function WeChatModal({
   const [events, setEvents] = useState([])
   const [pending, setPending] = useState([])
   const [pendingDrafts, setPendingDrafts] = useState({})
+  const [pendingAttachments, setPendingAttachments] = useState({})
+  const [quoteEnabled, setQuoteEnabled] = useState({})
+  const [atEnabled, setAtEnabled] = useState({})
   const [refreshing, setRefreshing] = useState(false)
   const [working, setWorking] = useState('')
   const [error, setError] = useState('')
@@ -2358,15 +2724,20 @@ function WeChatModal({
   }
 
   const confirmPending = async (item) => {
-    const text = (pendingDrafts[item.id] || '').trim()
-    if (!text) return
+    const text = (pendingDrafts[item.id] || item.candidate || '').trim()
+    const files = pendingAttachments[item.id] || []
+    const quote = Boolean(item.quote_preview) && (quoteEnabled[item.id] ?? true)
+    const at =
+      (item.at_targets || []).length > 0 && (atEnabled[item.id] ?? true)
+    if (!text && files.length === 0) return
     setWorking(`confirm:${item.id}`)
     setError('')
     try {
-      await api(`/api/automation/confirm/${encodeURIComponent(item.id)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+      await confirmPendingSend(item, text, files, quote, at)
+      setPendingAttachments((current) => {
+        const next = { ...current }
+        delete next[item.id]
+        return next
       })
       await loadAutomation()
       await onChanged()
@@ -2760,6 +3131,18 @@ function WeChatModal({
               pending={pending}
               pendingDrafts={pendingDrafts}
               setPendingDrafts={setPendingDrafts}
+              attachmentFiles={pendingAttachments}
+              onAttachmentsChange={(id, files) =>
+                setPendingAttachments((current) => ({ ...current, [id]: files }))
+              }
+              quoteEnabled={quoteEnabled}
+              onQuoteChange={(id, enabled) =>
+                setQuoteEnabled((current) => ({ ...current, [id]: enabled }))
+              }
+              atEnabled={atEnabled}
+              onAtChange={(id, enabled) =>
+                setAtEnabled((current) => ({ ...current, [id]: enabled }))
+              }
               working={working}
               onConfirm={confirmPending}
               onDiscard={discardPending}
@@ -2880,6 +3263,18 @@ function WeChatModal({
         </div>
 
         <AutomationFlowGraph events={events} />
+
+        <section className="automation-records-entry">
+          <div>
+            <span className="eyebrow">运行记录中心</span>
+            <strong>查看完整 Agent 调用、失败原因和模型日志</strong>
+            <p>当前弹窗保留连接、导入和自动化设置；详细记录统一迁移到独立页面。</p>
+          </div>
+          <button type="button" className="button secondary" onClick={onOpenOperations}>
+            <Activity size={16} />
+            打开运行记录中心
+          </button>
+        </section>
 
         {events.length > 0 && (
           <div className="automation-events">

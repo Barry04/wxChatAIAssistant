@@ -228,6 +228,38 @@ def test_rendered_send_stops_before_message_input_when_ocr_title_mismatches(
     assert len(clicked) == 1
 
 
+def test_rendered_file_send_stops_before_paste_when_ocr_title_mismatches(
+    monkeypatch,
+):
+    window = FakeWindow("微信", "Qt51514QWindowIcon")
+    pasted_files = []
+    clicked = []
+    monkeypatch.setattr(wechat_bridge, "_leave_web_search_page", lambda _window: True)
+    monkeypatch.setattr(
+        wechat_bridge, "_click_screen_point", lambda *point: clicked.append(point)
+    )
+    monkeypatch.setattr(wechat_bridge, "_select_all", lambda: None)
+    monkeypatch.setattr(wechat_bridge, "_paste_text", lambda text: None)
+    monkeypatch.setattr(
+        wechat_bridge, "_paste_files", lambda paths: pasted_files.extend(paths)
+    )
+    monkeypatch.setattr(wechat_bridge, "_press_down", lambda: None)
+    monkeypatch.setattr(wechat_bridge, "_press_enter", lambda: None)
+    monkeypatch.setattr(wechat_bridge, "_find_web_search_document", lambda _w: None)
+    monkeypatch.setattr(
+        wechat_bridge, "_read_rendered_chat_title", lambda _window: "其他联系人"
+    )
+    monkeypatch.setattr(wechat_bridge.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(RuntimeError, match="OCR 标题验证失败"):
+        wechat_bridge._send_via_rendered_window(
+            window, "鲱鱼", "", files=["F:/photo.png"]
+        )
+
+    assert pasted_files == []
+    assert len(clicked) == 1
+
+
 def test_rendered_send_continues_only_after_ocr_title_matches(monkeypatch):
     window = FakeWindow("微信", "Qt51514QWindowIcon")
     pasted = []
@@ -360,7 +392,7 @@ def test_send_uses_rendered_window_only_for_registered_stable_talker(monkeypatch
     monkeypatch.setattr(
         wechat_bridge,
         "_send_via_rendered_window",
-        lambda _window, name, text: sent.append((name, text))
+        lambda _window, name, text, files=None: sent.append((name, text, files or []))
         or {
             "sent": True,
             "chat_name": name,
@@ -372,7 +404,7 @@ def test_send_uses_rendered_window_only_for_registered_stable_talker(monkeypatch
 
     result = wechat_bridge.send_wechat_message("鲱鱼", "测试草稿")
 
-    assert sent == [("鲱鱼", "测试草稿")]
+    assert sent == [("鲱鱼", "测试草稿", [])]
     assert result["sent"] is True
     assert result["stable_talker"] == "wxid_target"
 
@@ -411,3 +443,45 @@ def test_send_tries_next_non_web_result_after_title_mismatch(monkeypatch):
     assert selected == ["first", "second"]
     assert result["sent"] is True
     assert result["selection"] == "search_result_candidate_2"
+
+
+def test_quote_send_raises_when_bubble_is_missing(monkeypatch):
+    window = FakeWindow("微信", "Qt51514QWindowIcon")
+    monkeypatch.setattr(wechat_bridge, "_leave_web_search_page", lambda _window: True)
+    monkeypatch.setattr(wechat_bridge, "_click_screen_point", lambda *_args: None)
+    monkeypatch.setattr(wechat_bridge, "_select_all", lambda: None)
+    monkeypatch.setattr(wechat_bridge, "_paste_text", lambda _text: None)
+    monkeypatch.setattr(wechat_bridge, "_press_down", lambda: None)
+    monkeypatch.setattr(wechat_bridge, "_press_enter", lambda: None)
+    monkeypatch.setattr(wechat_bridge, "_find_web_search_document", lambda _w: None)
+    monkeypatch.setattr(
+        wechat_bridge, "_read_rendered_chat_title", lambda _window: "鲱鱼"
+    )
+    monkeypatch.setattr(wechat_bridge, "_find_quote_target", lambda *_args: None)
+    monkeypatch.setattr(wechat_bridge.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(RuntimeError, match="找不到可引用气泡"):
+        wechat_bridge._send_via_rendered_window(
+            window, "鲱鱼", "收到", quote_preview="周末一起吃饭吗"
+        )
+
+
+def test_mention_send_raises_when_picker_is_missing(monkeypatch):
+    window = FakeWindow("微信", "Qt51514QWindowIcon")
+    monkeypatch.setattr(wechat_bridge, "_leave_web_search_page", lambda _window: True)
+    monkeypatch.setattr(wechat_bridge, "_click_screen_point", lambda *_args: None)
+    monkeypatch.setattr(wechat_bridge, "_select_all", lambda: None)
+    monkeypatch.setattr(wechat_bridge, "_paste_text", lambda _text: None)
+    monkeypatch.setattr(wechat_bridge, "_press_down", lambda: None)
+    monkeypatch.setattr(wechat_bridge, "_press_enter", lambda: None)
+    monkeypatch.setattr(wechat_bridge, "_find_web_search_document", lambda _w: None)
+    monkeypatch.setattr(
+        wechat_bridge, "_read_rendered_chat_title", lambda _window: "测试群"
+    )
+    monkeypatch.setattr(wechat_bridge, "_find_mention_candidate", lambda *_args: None)
+    monkeypatch.setattr(wechat_bridge.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(RuntimeError, match="未能点选联系人提及"):
+        wechat_bridge._send_via_rendered_window(
+            window, "测试群", "收到", at_names=["张三"]
+        )

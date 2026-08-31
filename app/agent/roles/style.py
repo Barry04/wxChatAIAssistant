@@ -10,6 +10,7 @@ from app.agent.tools import (
     tool_retrieve_examples,
 )
 from app.agent.tracing import make_trace_event, start_timer
+from app.memory import get_summary, relevant_facts
 from app.models import Contact
 from app.self_skill import get_style_prompt
 
@@ -42,6 +43,11 @@ def style_node(state: dict[str, Any]) -> dict[str, Any]:
 
     principles = skill.get("principles") or []
     style_prefs = tool_contact_style_instructions(contact)
+    try:
+        facts = relevant_facts(contact.contact_id, conversation)
+        memory_summary = get_summary(contact.contact_id)
+    except Exception:
+        facts, memory_summary = [], ""
     style_brief = {
         "relationship": contact.relationship,
         "preferred_address": contact.preferred_address,
@@ -71,12 +77,15 @@ def style_node(state: dict[str, Any]) -> dict[str, Any]:
             for item in examples[:3]
             if item.get("my_reply")
         ],
+        "facts": facts,
+        "memory_summary": memory_summary,
         "rules": [
             "优先回应对方当前连续发送的整段消息；最后一句只是其中一个片段",
             "先满足 response_plan.action，再考虑幽默、评价或话题推进",
             "一条候选只做一个交流动作",
             "不编造位置、行程、健康、金钱决定或重大关系承诺",
             "不编造用户本人的星座、年龄、职业、所在地或其他未提供事实",
+            "只使用当前联系人已记录事实；低置信度事实视为可能，不得迁移到其他人",
             "对方追问未提供的本人事实时，用自然反问或请对方猜，不得直接声明",
             "affirmation 不要机械复读确认，应结合上一句推进",
             "对方已回答的问题不要再答一遍",

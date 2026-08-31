@@ -1,8 +1,10 @@
 from app.chat_analysis import analyze_chat_records
+from app.runtime.messages import conversation_text
 from app.wechat_cli_bridge import (
     get_full_timeline,
     recent_self_history,
     timeline_to_records,
+    _message_text,
 )
 
 
@@ -14,6 +16,15 @@ def _message(local_id, timestamp, from_me, text, kind="text"):
         "text": text,
         "kind": kind,
     }
+
+
+def test_empty_media_messages_use_chinese_kind_labels():
+    assert _message_text({"kind": "image", "text": ""}) == "[图片]"
+    assert _message_text({"kind": "file", "text": ""}) == "[文件]"
+    assert _message_text({"text": "你好", "kind": "image"}) == "你好"
+    assert "[图片]" in conversation_text(
+        [{"id": {"local_id": 1}, "is_from_me": False, "text": "", "kind": "image"}]
+    )
 
 
 def test_timeline_to_records_groups_turns_and_keeps_metrics():

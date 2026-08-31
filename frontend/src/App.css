@@ -3009,6 +3009,56 @@ button {
   gap: 8px;
 }
 
+.pending-quote-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.pending-attachments {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.pending-attachment-row {
+  position: relative;
+}
+
+.pending-attachment-row input[type='file'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.pending-attachment-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  color: #27332d;
+  background: #f3f2ec;
+  border: 1px solid #d9d9d1;
+  border-radius: 12px;
+}
+
+.pending-attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
 .button.danger {
   color: #a34e3c;
 }

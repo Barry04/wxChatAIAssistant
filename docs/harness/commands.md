@@ -33,6 +33,10 @@ GET /api/logs/model-calls?limit=50
 GET /api/automation/events?limit=50
 ```
 
+自动化事件使用 `orchestration_mode=langgraph-hub` 标记 Hub 编排，并在
+`hub_trace` 中记录 Task → Hub 的受控路由原因；事件仍不保存模型 API Key、提示词或
+完整聊天正文之外的新增 Hub 推理内容。
+
 模型调用日志不保存 API Key、提示词、聊天正文或模型回复。
 
 Windows 微信 4.1 自绘界面的发送前会话验证由

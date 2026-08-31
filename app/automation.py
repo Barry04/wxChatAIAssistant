@@ -5,6 +5,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from .message_text import display_message_text
 from .models import AutoReplySettings, Contact
 from .self_skill import distill_self_skill
 from .services import (
@@ -17,6 +18,8 @@ from .storage import (
     AUTOMATION_EVENTS_FILE,
     AUTOMATION_STATE_FILE,
     append_jsonl,
+    clear_approved_attachments,
+    list_approved_attachments,
     load_auto_reply_config,
     load_contacts,
     read_json,
@@ -33,6 +36,25 @@ from .wechat_cli_bridge import (
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _at_targets(contact: Contact, incoming: list[dict[str, Any]]) -> list[dict[str, str]]:
+    if contact.chat_type != "group" or not incoming:
+        return []
+    message = incoming[-1]
+    name = str(
+        message.get("sender_name")
+        or message.get("sender_display_name")
+        or ""
+    ).strip()
+    if not name or "所有人" in name:
+        return []
+    return [
+        {
+            "name": name,
+            "wxid": str(message.get("sender_wxid") or message.get("sender") or ""),
+        }
+    ]
 
 
 def _effective_settings(
@@ -121,6 +143,18 @@ class AutomationWorker:
 
     def status(self) -> dict[str, Any]:
         settings = AutoReplySettings(**load_auto_reply_config())
+        settings_payload = settings.model_dump()
+        settings_payload["auto_send_levels"] = [
+            level for level in settings.auto_send_levels if level == "L0"
+        ]
+        contact_payload = {}
+        for contact_id, value in settings.contact_settings.items():
+            payload = value.model_dump()
+            if payload.get("auto_send_levels") is not None:
+                payload["auto_send_levels"] = [
+                    level for level in payload["auto_send_levels"] if level == "L0"
+                ]
+            contact_payload[contact_id] = payload
         state = read_json(
             AUTOMATION_STATE_FILE,
             {
@@ -142,7 +176,8 @@ class AutomationWorker:
             "worker_running": bool(self._thread and self._thread.is_alive()),
             "cycle_running": self._running_cycle,
             "last_error": self._last_error,
-            "settings": settings.model_dump(),
+            "settings": settings_payload,
+            "orchestration_mode": "langgraph-hub",
             "cursor_count": len(state.get("cursors", {})),
             "paused": bool(state.get("paused", False)),
             "pending_confirmations": len(state.get("pending_confirmations", [])),
@@ -158,10 +193,7 @@ class AutomationWorker:
                 and settings.real_send_acknowledged
             ),
             "contact_send_guard_ready": contact_guard_ready,
-            "contact_settings": {
-                contact_id: value.model_dump()
-                for contact_id, value in settings.contact_settings.items()
-            },
+            "contact_settings": contact_payload,
             "last_run_at": state.get("last_run_at", ""),
         }
 
@@ -201,7 +233,16 @@ class AutomationWorker:
             "contact_id": contact.contact_id,
             "display_name": contact.display_name,
             "talker": talker,
-            "incoming": [message.get("text", "") for message in incoming],
+            "incoming": [display_message_text(message) for message in incoming],
+            "incoming_kinds": [
+                str(message.get("kind") or "unknown") for message in incoming
+            ],
+            "quote_local_id": int(
+                ((incoming[-1].get("id") or {}) if incoming else {}).get("local_id")
+                or 0
+            ),
+            "quote_preview": display_message_text(incoming[-1]) if incoming else "",
+            "at_targets": _at_targets(contact, incoming),
             "candidate": candidate,
             "candidate_options": candidate_options[:3],
             "risk": risk,
@@ -268,7 +309,13 @@ class AutomationWorker:
             contact_id=contact_id,
         )
 
-    async def confirm(self, confirmation_id: str, text: str) -> dict[str, Any]:
+    async def confirm(
+        self,
+        confirmation_id: str,
+        text: str,
+        quote: bool = False,
+        at: bool = False,
+    ) -> dict[str, Any]:
         from .operator.agent import execute_send
 
         # 轮询与人工确认共用状态和发送通道；短暂等待轮询结束，避免误报锁竞争。
@@ -297,6 +344,23 @@ class AutomationWorker:
                 return {"ok": False, "error": "dry_run_enabled"}
             if not contact_settings.real_send_acknowledged:
                 return {"ok": False, "error": "real_send_not_acknowledged"}
+            attachments = [
+                str(path) for path in list_approved_attachments(confirmation_id)
+            ]
+            if attachments and get_public_settings().get("provider") == "demo":
+                return {"ok": False, "error": "demo_provider"}
+            quote_preview = str(item.get("quote_preview") or "") if quote else ""
+            quote_local_id = int(item.get("quote_local_id") or 0) if quote else 0
+            if quote and (not quote_preview or not quote_local_id):
+                return {"ok": False, "error": "quote_target_missing"}
+            at_names = [
+                str(target.get("name") or "").strip()
+                for target in (item.get("at_targets") or [])
+                if at
+            ]
+            at_names = [name for name in at_names if name]
+            if at and not at_names:
+                return {"ok": False, "error": "mention_target_missing"}
 
             contacts = load_contacts()
             contact_data = next(
@@ -327,6 +391,10 @@ class AutomationWorker:
                     talker=str(item.get("talker") or ""),
                     text=candidate,
                     newest_local_id=int(item.get("newest_local_id") or 0),
+                    attachments=attachments,
+                    quote_preview=quote_preview,
+                    quote_local_id=quote_local_id,
+                    at_names=at_names,
                 )
             except Exception as exc:
                 operator_result = {
@@ -343,6 +411,7 @@ class AutomationWorker:
                     for entry in pending
                     if entry.get("id") != confirmation_id
                 ]
+                clear_approved_attachments(confirmation_id)
                 event = {
                     **item,
                     "agent": "operator",
@@ -391,6 +460,7 @@ class AutomationWorker:
         ]
         if len(state["pending_confirmations"]) == before:
             return {"deleted": False}
+        clear_approved_attachments(confirmation_id)
         write_json(AUTOMATION_STATE_FILE, state)
         return {"deleted": True, "confirmation_id": confirmation_id}
 

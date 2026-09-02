@@ -14,18 +14,6 @@
 
 ![关系助手：Agent 流转图动态演示](docs/images/agent-flow-demo.gif)
 
-## 📖 精美长文版（beautiful-article 重制）
-
-本 README 已由 [beautiful-article](https://github.com/ConardLi/garden-skills/tree/main/skills/beautiful-article) 重制为**单文件 HTML 长文**：tufte 版式、封面 + 目录、共 14 章，可离线阅读。
-
-- **在线阅读（渲染版）**：[打开精美长文](https://htmlpreview.github.io/?https://raw.githubusercontent.com/Barry04/wxChatAIAssistant/master/articles/wxchat-readme-article/article/article.html)
-- **仓库内文件**：[`article.html`](articles/wxchat-readme-article/article/article.html)（下载后用浏览器打开）
-
-<p align="center">
-  <img src="articles/wxchat-readme-article/review/shot-01-hero.png" alt="精美长文首屏预览" width="720"/>
-  <img src="articles/wxchat-readme-article/review/shot-08-quickstart.png" alt="快速开始章节预览" width="720"/>
-</p>
-
 ## ✨ 功能亮点
 
 | 亮点 | 说明 |
@@ -179,12 +167,11 @@ tools/                  辅助脚本（如 Windows 微信 OCR 会话标题校验
 data/                   本地个人数据（不会上传）
 tests/                  自动化测试
 docs/                   架构、命令与设计文档
-articles/               beautiful-article 长文成品与过程记录
+articles/               README 长文 HTML 成品与制作记录
 ```
 
 ## 📚 文档与许可
 
-- [📖 精美长文版（HTML 渲染）](articles/wxchat-readme-article/article/article.html)
 - [架构说明](docs/harness/architecture.md)
 - [常用命令](docs/harness/commands.md)
 - [关系型微信助手设计](docs/relationship-wechat-assistant-design.md)

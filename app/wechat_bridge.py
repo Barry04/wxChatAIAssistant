@@ -1,13 +1,12 @@
-from dataclasses import asdict, dataclass
-from contextlib import nullcontext
 import ctypes
 import json
 import re
 import subprocess
 import time
+from contextlib import nullcontext
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
-
 
 try:
     import uiautomation as auto

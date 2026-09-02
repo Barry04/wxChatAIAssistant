@@ -32,7 +32,8 @@ def test_runtime_settings_persist_api_key(tmp_path, monkeypatch):
 def test_update_settings_keeps_existing_api_key_when_form_is_blank(
     tmp_path, monkeypatch
 ):
-    import app.main as main
+    import app.api.settings as settings_module
+    import app.api.state as state_module
     import app.services as services
 
     _patch_config_db(monkeypatch, tmp_path)
@@ -44,9 +45,9 @@ def test_update_settings_keeps_existing_api_key_when_form_is_blank(
             api_key="existing-key",
         )
     )
-    monkeypatch.setattr(main, "RUNTIME_API_KEY", "existing-key")
+    monkeypatch.setattr(state_module, "RUNTIME_API_KEY", "existing-key")
 
-    result = main.update_settings(
+    result = settings_module.update_settings(
         RuntimeSettings(
             provider="openai-compatible",
             base_url="https://api.example.com/v1",

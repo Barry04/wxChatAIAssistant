@@ -4,7 +4,6 @@ from typing import Any
 
 from app.agent.tools import (
     tool_contact_style_instructions,
-    tool_load_persona,
     tool_load_profile,
     tool_load_relationship_skill,
     tool_retrieve_examples,

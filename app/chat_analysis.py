@@ -4,7 +4,6 @@ from datetime import datetime
 from statistics import median
 from typing import Any
 
-
 TEXT_KINDS = {"text"}
 IMAGE_KINDS = {"image"}
 EMOJI_KINDS = {"emoji", "sticker"}

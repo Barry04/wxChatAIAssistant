@@ -7,7 +7,6 @@ from typing import Any
 
 from .storage import ROOT
 
-
 PRIVATE_CONFIG = ROOT / "private" / "wechat-cli-config.json"
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.models import Contact
+from app.self_skill import get_self_skill_prompt
 from app.services import (
     _demo_candidates,
     _sanitize_candidates,
@@ -12,7 +13,6 @@ from app.services import (
     contact_style_instructions,
     retrieve_examples,
 )
-from app.self_skill import get_self_skill_prompt
 from app.storage import PROFILE_FILE, load_skill, read_json
 
 

@@ -1,10 +1,9 @@
 import asyncio
 import json
 
+import app.agent.llm as llm
 import httpx
 import pytest
-
-import app.agent.llm as llm
 from app.agent.llm import _openai_compatible_payload, _response_error
 from app.models import RuntimeSettings
 

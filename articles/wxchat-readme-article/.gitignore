@@ -1,0 +1,3 @@
+# Beautiful Article workspace: exclude build deps and intermediate output
+node_modules/
+dist/

@@ -6,6 +6,18 @@
 
 ![关系助手：Agent 流转图动态演示](docs/images/agent-flow-demo.gif)
 
+## 📖 精美长文版（beautiful-article 重制）
+
+本 README 已由 [beautiful-article](https://github.com/ConardLi/garden-skills/tree/main/skills/beautiful-article) 重制为**单文件 HTML 长文**：tufte 版式、封面 + 目录、共 14 章，可离线阅读。
+
+- **在线阅读（渲染版）**：[打开精美长文](https://htmlpreview.github.io/?https://raw.githubusercontent.com/Barry04/wxChatAIAssistant/master/articles/wxchat-readme-article/article/article.html)
+- **仓库内文件**：[`article.html`](articles/wxchat-readme-article/article/article.html)（下载后用浏览器打开）
+
+<p align="center">
+  <img src="articles/wxchat-readme-article/review/shot-01-hero.png" alt="精美长文首屏预览" width="720"/>
+  <img src="articles/wxchat-readme-article/review/shot-08-quickstart.png" alt="快速开始章节预览" width="720"/>
+</p>
+
 ## 新版能力
 
 - **关系化联系人工作台**：为情侣、朋友、家人维护不同的称呼、边界、回复长度、表情和幽默偏好；可在左侧直接编辑关系类型或删除自己添加的联系人。

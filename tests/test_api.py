@@ -1,8 +1,12 @@
 import json
 
-from fastapi.testclient import TestClient
-
+import app.api.contacts as contacts_module
+import app.api.generate as generate_module
+import app.api.imports as imports_module
+import app.api.meta as meta_module
+import app.api.wechat as wechat_module
 import app.main as main_module
+from fastapi.testclient import TestClient
 
 
 def _patch_config_db(monkeypatch, tmp_path, contacts=None):
@@ -28,7 +32,7 @@ def test_model_calls_route_returns_recent_calls_without_sensitive_content(
         '"http_status":200,"duration_ms":321,"error":""}\n',
         encoding="utf-8",
     )
-    monkeypatch.setattr(main_module, "MODEL_CALLS_FILE", log_file, raising=False)
+    monkeypatch.setattr(meta_module, "MODEL_CALLS_FILE", log_file, raising=False)
     _disable_worker(monkeypatch)
 
     with TestClient(main_module.app) as client:
@@ -51,9 +55,7 @@ def test_model_calls_route_returns_recent_calls_without_sensitive_content(
 
 def test_style_presets_route_and_contact_validation(monkeypatch, tmp_path):
     _patch_config_db(monkeypatch, tmp_path)
-    monkeypatch.setattr(
-        main_module,
-        "get_style_presets",
+    monkeypatch.setattr(contacts_module, "get_style_presets",
         lambda: [
             {
                 "id": "style:concise",
@@ -128,7 +130,7 @@ def test_style_presets_route_and_contact_validation(monkeypatch, tmp_path):
 
 def test_contact_route_accepts_group_chat_settings(monkeypatch, tmp_path):
     _patch_config_db(monkeypatch, tmp_path)
-    monkeypatch.setattr(main_module, "get_style_presets", lambda: [])
+    monkeypatch.setattr(contacts_module, "get_style_presets", lambda: [])
     _disable_worker(monkeypatch)
 
     with TestClient(main_module.app) as client:
@@ -180,9 +182,7 @@ def test_generate_route_accepts_temporary_style_override(monkeypatch, tmp_path):
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(
-        main_module,
-        "get_style_presets",
+    monkeypatch.setattr(contacts_module, "get_style_presets",
         lambda: [{"id": "style:concise", "name": "简洁短句"}],
     )
     calls = []
@@ -191,7 +191,7 @@ def test_generate_route_accepts_temporary_style_override(monkeypatch, tmp_path):
         calls.append((contact.style_preset_id, conversation, style_preset_id))
         return {"style_preset_id": style_preset_id}
 
-    monkeypatch.setattr(main_module, "generate_reply", fake_generate)
+    monkeypatch.setattr(generate_module, "generate_reply", fake_generate)
     _disable_worker(monkeypatch)
 
     with TestClient(main_module.app) as client:
@@ -219,14 +219,10 @@ def test_generate_route_accepts_temporary_style_override(monkeypatch, tmp_path):
 
 def test_girls_chat_style_routes(monkeypatch):
     _disable_worker(monkeypatch)
-    monkeypatch.setattr(
-        main_module,
-        "get_girls_chat_style",
+    monkeypatch.setattr(imports_module, "get_girls_chat_style",
         lambda: {"ready": True, "meta": {"candidate_count": 2, "sample_count": 20}},
     )
-    monkeypatch.setattr(
-        main_module,
-        "distill_girls_chat_style",
+    monkeypatch.setattr(imports_module, "distill_girls_chat_style",
         lambda: {"generated": True, "candidate_count": 2, "sample_count": 20},
     )
 
@@ -262,10 +258,10 @@ def test_wechat_coverage_route_reports_read_and_distilled_counts(
     raw_file.write_text('{"id": 1}\n{"id": 2}\n', encoding="utf-8")
     messages_file.write_text('{"id": 1}\n', encoding="utf-8")
     meta_file.write_text(json.dumps({"sample_count": 42}), encoding="utf-8")
-    monkeypatch.setattr(main_module, "WECHAT_COVERAGE_FILE", coverage_file)
-    monkeypatch.setattr(main_module, "WECHAT_RAW_MESSAGES_FILE", raw_file)
-    monkeypatch.setattr(main_module, "MESSAGES_FILE", messages_file)
-    monkeypatch.setattr(main_module, "SELF_SKILL_META_FILE", meta_file)
+    monkeypatch.setattr(wechat_module, "WECHAT_COVERAGE_FILE", coverage_file)
+    monkeypatch.setattr(wechat_module, "WECHAT_RAW_MESSAGES_FILE", raw_file)
+    monkeypatch.setattr(wechat_module, "MESSAGES_FILE", messages_file)
+    monkeypatch.setattr(wechat_module, "SELF_SKILL_META_FILE", meta_file)
     _disable_worker(monkeypatch)
 
     with TestClient(main_module.app) as client:
@@ -295,10 +291,10 @@ def test_wechat_coverage_route_reads_utf8_report_without_bom(
             ensure_ascii=False,
         ).encode("utf-8")
     )
-    monkeypatch.setattr(main_module, "WECHAT_COVERAGE_FILE", coverage_file)
-    monkeypatch.setattr(main_module, "WECHAT_RAW_MESSAGES_FILE", tmp_path / "raw.jsonl")
-    monkeypatch.setattr(main_module, "MESSAGES_FILE", tmp_path / "messages.jsonl")
-    monkeypatch.setattr(main_module, "SELF_SKILL_META_FILE", tmp_path / "meta.json")
+    monkeypatch.setattr(wechat_module, "WECHAT_COVERAGE_FILE", coverage_file)
+    monkeypatch.setattr(wechat_module, "WECHAT_RAW_MESSAGES_FILE", tmp_path / "raw.jsonl")
+    monkeypatch.setattr(wechat_module, "MESSAGES_FILE", tmp_path / "messages.jsonl")
+    monkeypatch.setattr(wechat_module, "SELF_SKILL_META_FILE", tmp_path / "meta.json")
     _disable_worker(monkeypatch)
 
     with TestClient(main_module.app) as client:
@@ -308,10 +304,8 @@ def test_wechat_coverage_route_reads_utf8_report_without_bom(
     assert response.json()["total_sessions"] == 488
 def test_wechat_import_merges_paginated_coverage(monkeypatch, tmp_path):
     coverage_file = tmp_path / "wechat-read-coverage.json"
-    monkeypatch.setattr(main_module, "WECHAT_COVERAGE_FILE", coverage_file)
-    monkeypatch.setattr(
-        main_module,
-        "recent_self_history",
+    monkeypatch.setattr(wechat_module, "WECHAT_COVERAGE_FILE", coverage_file)
+    monkeypatch.setattr(wechat_module, "recent_self_history",
         lambda **_kwargs: (
             [],
             [
@@ -343,8 +337,8 @@ def test_wechat_import_merges_paginated_coverage(monkeypatch, tmp_path):
             },
         ),
     )
-    monkeypatch.setattr(main_module, "import_records", lambda _records: 0)
-    monkeypatch.setattr(main_module, "distill_self_skill", lambda: {})
+    monkeypatch.setattr(wechat_module, "import_records", lambda _records: 0)
+    monkeypatch.setattr(wechat_module, "distill_self_skill", lambda: {})
     _disable_worker(monkeypatch)
 
     with TestClient(main_module.app) as client:
@@ -385,10 +379,10 @@ def test_wechat_import_preserves_legacy_readable_count_from_raw_messages(
         '{"wechat_talker":"wxid_old_b"}\n',
         encoding="utf-8",
     )
-    monkeypatch.setattr(main_module, "WECHAT_COVERAGE_FILE", coverage_file)
-    monkeypatch.setattr(main_module, "WECHAT_RAW_MESSAGES_FILE", raw_file)
+    monkeypatch.setattr(wechat_module, "WECHAT_COVERAGE_FILE", coverage_file)
+    monkeypatch.setattr(wechat_module, "WECHAT_RAW_MESSAGES_FILE", raw_file)
 
-    report = main_module._update_wechat_coverage(
+    report = wechat_module._update_wechat_coverage(
         {"total_sessions": 3},
         [{"username": "wxid_new", "display_name": "new", "chat_type": "private"}],
     )

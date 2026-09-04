@@ -8,17 +8,16 @@ from .models import Contact, RuntimeSettings
 from .storage import (
     FEEDBACK_FILE,
     MESSAGES_FILE,
-    WECHAT_RAW_MESSAGES_FILE,
     PROFILE_FILE,
+    WECHAT_RAW_MESSAGES_FILE,
     append_jsonl,
-    load_safety_config,
     load_runtime_config,
+    load_safety_config,
     read_json,
     read_jsonl,
     save_runtime_config,
     write_json,
 )
-
 
 SCENE_KEYWORDS = {
     "comfort": ["累", "难过", "委屈", "烦", "崩溃", "不开心", "想哭", "压力", "警察局", "动手", "被打", "报警"],
@@ -513,7 +512,7 @@ _EMOJI_RE = re.compile(
     "\U0001F1E6-\U0001F1FF"
     "]+"
 )
-_LAUGH_RE = re.compile(r"(哈){2,}|hhh+|lol", re.I)
+_LAUGH_RE = re.compile(r"(哈){2,}|hhh+|lol", re.IGNORECASE)
 
 
 def contact_style_instructions(contact: Contact) -> dict[str, Any]:
@@ -744,7 +743,7 @@ def _demo_candidates(
         selected[0] = example_text
     selected = _apply_contact_preferences(selected, contact, scene)
     labels = ["最像我", "更温和", "更简短"]
-    return [{"label": label, "text": text} for label, text in zip(labels, selected)]
+    return [{"label": label, "text": text} for label, text in zip(labels, selected, strict=True)]
 
 
 

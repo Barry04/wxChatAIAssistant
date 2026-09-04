@@ -26,3 +26,11 @@ skill/
 !.env.example
 *.pem
 *.key
+
+# Agent skill installs (local tooling, see skills-lock.json)
+.agents/
+.cursor/
+skills-lock.json
+
+# Test coverage artifacts
+.coverage

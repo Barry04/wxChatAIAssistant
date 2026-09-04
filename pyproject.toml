@@ -1,0 +1,33 @@
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+src = ["app", "tests", "tools"]
+extend-exclude = ["data", "private", ".runtime", "skill", "articles"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "C4", "FURB"]
+ignore = [
+    "E501",    # 行宽留待统一 format 阶段决策，避免当前引入噪声
+    "BLE001",  # 外部进程/UI 边界的 fallback 是有意设计（模型失败回退、发送异常落库）
+    "DTZ006",  # 本地时区时间统计是有意行为（单机应用）
+    "PLW0406", # automation 模块作为 Orchestrator/Watcher 的 host facade 有意自引用
+]
+
+[tool.ruff.lint.per-file-ignores]
+# automation.py 顶部 import 的名字通过 `host.xxx` 被 orchestrator/watcher 动态访问，
+# 由测试注入的 host 替身共享，因此 F401 属误报。
+"app/automation.py" = ["F401"]
+# tools/import_wechat_history.py 先探测本地依赖再注入 sys.path 后延迟导入 app 包，E402 为有意设计。
+"tools/import_wechat_history.py" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

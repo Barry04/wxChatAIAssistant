@@ -2,8 +2,9 @@ import asyncio
 import hashlib
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any
 
 from .models import AutoReplySettings, Contact
 from .self_skill import distill_self_skill
@@ -258,6 +259,7 @@ class AutomationWorker:
         contact_id: str | None = None,
     ) -> dict[str, Any]:
         from app import automation as host
+
         from .runtime.orchestrator import run_cycle
 
         return await run_cycle(

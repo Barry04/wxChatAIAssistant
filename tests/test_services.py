@@ -2,26 +2,25 @@ import asyncio
 import json
 
 from app.models import Contact, RuntimeSettings
-from app.services import (
-    analyze_dialogue,
-    classify_risk,
-    classify_scene,
-    generate_reply,
-    parse_plain_text,
-    retrieve_examples,
-)
-from app.services import _demo_candidates, _sanitize_candidates
 from app.self_skill import (
     _girls_chat_candidates,
     distill_girls_chat_style,
     distill_self_skill,
-    get_self_skill,
     get_self_skill_prompt,
     get_style_presets,
     get_style_prompt,
 )
-from app.storage import MESSAGES_FILE
-from app.services import import_records
+from app.services import (
+    _demo_candidates,
+    _sanitize_candidates,
+    analyze_dialogue,
+    classify_risk,
+    classify_scene,
+    generate_reply,
+    import_records,
+    parse_plain_text,
+    retrieve_examples,
+)
 
 
 def test_scene_and_risk_classification():

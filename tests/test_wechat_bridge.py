@@ -1,3 +1,5 @@
+import app.wechat_bridge as wechat_bridge
+import pytest
 from app.wechat_bridge import (
     _find_chat_result_candidates,
     _find_exact_chat_result,
@@ -6,8 +8,6 @@ from app.wechat_bridge import (
     _find_web_search_document,
     _window_point,
 )
-import app.wechat_bridge as wechat_bridge
-import pytest
 
 
 class FakeRect:

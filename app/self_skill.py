@@ -19,7 +19,6 @@ from .storage import (
     write_json,
 )
 
-
 RELATIONSHIP_LABELS = {
     "partner": "partner",
     "friend": "friend",
@@ -107,7 +106,7 @@ def _recent_rows(
         recent_sessions,
     )
 
-GOODNIGHT_RE = re.compile(r"(?:晚安|安安|good\s*night|goodnight)", re.I)
+GOODNIGHT_RE = re.compile(r"(?:晚安|安安|good\s*night|goodnight)", re.IGNORECASE)
 
 
 def _goodnight_count(text: str) -> int:
@@ -301,7 +300,6 @@ def distill_girls_chat_style() -> dict[str, Any]:
             "\u6839\u636e\u5f53\u524d\u5bf9\u8bdd\u52a8\u4f5c\u4fdd\u6301\u81ea\u7136\u63a5\u8bdd\uff0c\u4e0d\u673a\u68b0\u6dfb\u52a0\u5173\u5fc3\u6216\u6682\u6001",
         ],
     }
-    previous_meta = read_json(SELF_SKILL_META_FILE, {})
     meta = {
         "generated_at": now,
         "candidate_count": len(candidates),
@@ -845,7 +843,7 @@ def _reply_is_question(reply: str) -> bool:
 
 
 def _reply_is_playful(reply: str) -> bool:
-    return bool(re.search(r"[\U0001F300-\U0001FAFF]|哈哈|呵呵|嘿嘿|hhh|233", reply, re.I))
+    return bool(re.search(r"[\U0001F300-\U0001FAFF]|哈哈|呵呵|嘿嘿|hhh|233", reply, re.IGNORECASE))
 
 
 def _style_bucket(reply: str, median_length: float) -> str:

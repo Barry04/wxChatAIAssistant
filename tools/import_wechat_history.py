@@ -7,9 +7,9 @@ broken session cannot discard progress made by earlier sessions.
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -20,8 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services import import_raw_messages, import_records
 from app.self_skill import distill_self_skill
+from app.services import import_raw_messages, import_records
 from app.storage import (
     WECHAT_COVERAGE_FILE,
     ensure_storage,

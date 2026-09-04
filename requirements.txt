@@ -3,7 +3,6 @@ uvicorn[standard]==0.35.0
 httpx==0.28.1
 PyYAML==6.0.2
 python-multipart==0.0.20
-pytest==8.4.1
 uiautomation==2.0.29
 langgraph>=0.2.0
 langchain-core>=0.3.0

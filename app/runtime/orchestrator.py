@@ -5,6 +5,7 @@ from app.models import AutoReplySettings, Contact, RuntimeSettings
 from app.operator.agent import execute_send
 from app.runtime.messages import conversation_text
 from app.runtime.policy import evaluate_send_policy
+from app.runtime.reply_policy import drop_pending_for_talker
 from app.runtime.watcher import inspect_incoming, load_timeline, ordered_timeline_messages
 
 
@@ -104,6 +105,7 @@ async def run_cycle(
             reply_waits=reply_waits,
             candidate_cache=candidate_cache,
             send_failures=send_failures,
+            pending=pending,
             memory_imported=memory_imported,
         )
         if watched["status"] == "empty":
@@ -116,6 +118,9 @@ async def run_cycle(
         newest_id = watched["newest_id"]
         previous_id = watched["previous_id"]
         trigger_reason = watched["trigger_reason"]
+        stale_ignored = watched.get("stale_ignored")
+        if stale_ignored:
+            actions.append(stale_ignored)
 
         if not reply_enabled:
             continue
@@ -258,7 +263,7 @@ async def run_cycle(
         elif policy.decision == "needs_confirmation":
             action = "needs_confirmation"
             confirmation_id = worker._confirmation_id(talker, newest_id, candidate)
-            worker._enqueue_confirmation(
+            _item, superseded = worker._enqueue_confirmation(
                 pending,
                 confirmation_id=confirmation_id,
                 contact=contact,
@@ -271,6 +276,20 @@ async def run_cycle(
                 conversation=conversation_text(messages),
                 reason=policy.reason,
             )
+            if superseded:
+                actions.append(
+                    {
+                        "agent": "watch",
+                        "contact_id": contact.contact_id,
+                        "display_name": contact.display_name,
+                        "talker": talker,
+                        "action": "superseded",
+                        "superseded_ids": [
+                            entry.get("id") for entry in superseded
+                        ],
+                        "newest_local_id": newest_id,
+                    }
+                )
         else:
             action = "blocked"
 
@@ -278,6 +297,9 @@ async def run_cycle(
             candidate_cache.pop(retry_key, None)
             send_failures.pop(retry_key, None)
             reply_waits.pop(talker, None)
+            if action in {"blocked", "ignored"}:
+                # 当前轮被阻止或忽略时，旧待确认同样过时：只保留现在这一轮。
+                drop_pending_for_talker(pending, talker)
         elif action == "send_unverified":
             reply_waits[talker] = {
                 **reply_waits.get(talker, {}),

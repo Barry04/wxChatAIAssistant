@@ -37,7 +37,8 @@ flowchart LR
 | `app/services.py` | 导入解析、场景与风险识别、检索、画像提炼、反馈落库；`generate_reply` 委托 Agent 图 | [已验证] |
 | `app/agent/` | LangGraph 多角色草稿生成：understand → style → writer → reviewer，含 trace；零微信发送依赖 | [已验证] |
 | `app/runtime/policy.py` | 发送策略门：dry-run、demo、回退、L3、低置信度等，只输出 auto_send / needs_confirmation / blocked | [已验证] |
-| `app/runtime/watcher.py` | 时间线读取、游标基线、群触发、未回复检测；不生成、不发送 | [已验证] |
+| `app/runtime/watcher.py` | 时间线读取、游标基线、群触发、当前回合识别与过时忽略；不生成、不发送 | [已验证] |
+| `app/runtime/reply_policy.py` | 自然对话回合策略：整轮合并、话题分段、短确认跳过、待确认按会话替换/出队；不改变发送门禁 | [已验证] |
 | `app/runtime/orchestrator.py` | 按 watch → memory → draft → policy → operator/queue 调度；不是 LLM Supervisor | [已验证] |
 | `app/operator/` | 无模型发送执行器：绑定会话、粘贴发送、时间线校验；无已批准原文不得运行 | [已验证] |
 | `app/self_skill.py` | 全局 Self Memory/Persona 与联系人级表达画像蒸馏 | [已验证] |

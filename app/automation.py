@@ -189,13 +189,26 @@ class AutomationWorker:
         newest_id: int,
         conversation: str,
         reason: str,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """入队当前这一轮的待确认；同一会话最多保留一条，旧项被替换。
+
+        自然对话里，对方连发的新消息和上一轮未回复的片段属于同一轮：
+        新待确认直接替换旧项（``superseded``），队列不会越积越多。
+        """
         existing = next(
             (item for item in pending if item.get("id") == confirmation_id),
             None,
         )
         if existing:
-            return existing
+            return existing, []
+        kept: list[dict[str, Any]] = []
+        superseded: list[dict[str, Any]] = []
+        for item in pending:
+            if item.get("talker") == talker:
+                superseded.append(item)
+            else:
+                kept.append(item)
+        pending[:] = kept
         item = {
             "id": confirmation_id,
             "created_at": _now(),
@@ -209,11 +222,12 @@ class AutomationWorker:
             "newest_local_id": newest_id,
             "conversation": conversation,
             "reason": reason,
+            "superseded_ids": [entry.get("id") for entry in superseded],
             "attempts": 0,
             "last_error": "",
         }
         pending.append(item)
-        return item
+        return item, superseded
 
     async def run_once(
         self,

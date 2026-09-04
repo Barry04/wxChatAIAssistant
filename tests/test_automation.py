@@ -8,12 +8,13 @@ from app.automation import AutomationWorker
 from app.models import Contact
 
 
-def _message(local_id, from_me, text):
+def _message(local_id, from_me, text, create_time=0):
     return {
         "id": {"local_id": local_id},
         "is_from_me": from_me,
         "text": text,
         "kind": "text",
+        "create_time": create_time,
     }
 
 
@@ -1264,3 +1265,214 @@ def test_paused_worker_skips_cycle_and_reset_cursors(monkeypatch, tmp_path):
     reset = worker.reset_cursors("contact-a")
     assert reset["reset"] is True
     assert json.loads(state_file.read_text())["cursors"] == {}
+
+def test_user_reply_clears_pending_confirmations_and_waits(monkeypatch, tmp_path):
+    module, state_file, _ = _configure(monkeypatch, tmp_path, cursor=5)
+    state_file.write_text(
+        json.dumps(
+            {
+                "cursors": {"wxid-a": 5},
+                "reply_waits": {
+                    "wxid-a": {"started_at": 1.0, "incoming_id": 4, "takeover_ready": False}
+                },
+                "pending_confirmations": [
+                    {"id": "wxid-a:4:aaa", "talker": "wxid-a", "newest_local_id": 4},
+                    {"id": "wxid-a:5:bbb", "talker": "wxid-a", "newest_local_id": 5},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        module,
+        "get_timeline",
+        lambda *_args: {
+            "messages": [
+                _message(4, True, "my old message"),
+                _message(6, False, "incoming fragment"),
+                _message(7, True, "my reply"),
+            ]
+        },
+    )
+
+    result = asyncio.run(AutomationWorker(lambda: "").run_once())
+
+    assert result["actions"][0]["action"] == "user_replied"
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert state["pending_confirmations"] == []
+    assert state["reply_waits"] == {}
+
+
+def test_catch_up_after_user_reply_clears_stale_confirmations(monkeypatch, tmp_path):
+    module, state_file, _ = _configure(monkeypatch, tmp_path, cursor=99)
+    state_file.write_text(
+        json.dumps(
+            {
+                "cursors": {},
+                "pending_confirmations": [
+                    {"id": "wxid-a:1:aaa", "talker": "wxid-a", "newest_local_id": 1},
+                    {"id": "wxid-a:2:bbb", "talker": "wxid-a", "newest_local_id": 2},
+                    {"id": "wxid-a:3:ccc", "talker": "wxid-a", "newest_local_id": 3},
+                ],
+                "reply_waits": {
+                    "wxid-a": {"started_at": 1.0, "incoming_id": 3, "takeover_ready": True}
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        module,
+        "get_full_timeline",
+        lambda *_args, **_kwargs: {
+            "messages": [
+                _message(1, False, "fragment one"),
+                _message(2, False, "fragment two"),
+                _message(3, False, "fragment three"),
+                _message(4, True, "my single reply"),
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "get_timeline",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("catch-up must use full timeline")
+        ),
+    )
+
+    result = asyncio.run(
+        AutomationWorker(lambda: "").run_once(catch_up_unanswered=True)
+    )
+
+    assert result["actions"][0]["action"] == "already_replied"
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert state["pending_confirmations"] == []
+    assert state["reply_waits"] == {}
+
+
+def test_new_turn_replaces_pending_confirmation(monkeypatch, tmp_path):
+    module, state_file, _ = _configure(monkeypatch, tmp_path, cursor=5)
+    timelines = iter(
+        [
+            {"messages": [_message(6, False, "first fragment")]},
+            {
+                "messages": [
+                    _message(6, False, "first fragment"),
+                    _message(7, False, "follow up fragment"),
+                ]
+            },
+        ]
+    )
+    monkeypatch.setattr(module, "get_timeline", lambda *_args: next(timelines))
+
+    first = asyncio.run(AutomationWorker(lambda: "").run_once())
+    first_pending_id = json.loads(state_file.read_text(encoding="utf-8"))[
+        "pending_confirmations"
+    ][0]["id"]
+    second = asyncio.run(AutomationWorker(lambda: "").run_once())
+
+    assert first["actions"][-1]["action"] == "needs_confirmation"
+    assert [item["action"] for item in second["actions"]] == [
+        "superseded",
+        "needs_confirmation",
+    ]
+    assert second["actions"][0]["superseded_ids"] == [first_pending_id]
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert len(state["pending_confirmations"]) == 1
+    pending_item = state["pending_confirmations"][0]
+    assert pending_item["newest_local_id"] == 7
+    assert pending_item["incoming"] == ["first fragment", "follow up fragment"]
+
+
+def test_topic_shift_ignores_stale_segment(monkeypatch, tmp_path):
+    module, state_file, _ = _configure(monkeypatch, tmp_path, cursor=99)
+    state_file.write_text(
+        json.dumps(
+            {
+                "cursors": {},
+                "pending_confirmations": [
+                    {"id": "wxid-a:2:old", "talker": "wxid-a", "newest_local_id": 2}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        module,
+        "get_full_timeline",
+        lambda *_args, **_kwargs: {
+            "messages": [
+                _message(1, True, "my old reply", create_time=1000),
+                _message(2, False, "周末有空吗", create_time=8000),
+                _message(3, False, "今天好累", create_time=8000 + 7 * 3600),
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "get_timeline",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("catch-up must use full timeline")
+        ),
+    )
+
+    result = asyncio.run(
+        AutomationWorker(lambda: "").run_once(catch_up_unanswered=True)
+    )
+
+    assert [item["action"] for item in result["actions"]] == [
+        "stale_ignored",
+        "needs_confirmation",
+    ]
+    assert result["actions"][0]["ignored"] == ["周末有空吗"]
+    assert result["actions"][1]["incoming"] == ["今天好累"]
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert len(state["pending_confirmations"]) == 1
+    assert state["pending_confirmations"][0]["newest_local_id"] == 3
+
+
+def test_affirmative_ack_only_skips_confirmation(monkeypatch, tmp_path):
+    module, state_file, _ = _configure(monkeypatch, tmp_path, cursor=5)
+    generated = []
+    monkeypatch.setattr(
+        module,
+        "generate_reply",
+        lambda *_args, **_kwargs: generated.append(True),
+    )
+    monkeypatch.setattr(
+        module,
+        "get_timeline",
+        lambda *_args: {
+            "messages": [
+                _message(5, True, "昨天看的电影还挺好看的"),
+                _message(6, False, "嗯"),
+            ]
+        },
+    )
+
+    result = asyncio.run(AutomationWorker(lambda: "").run_once())
+
+    assert result["actions"][0]["action"] == "acknowledged"
+    assert generated == []
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert state["pending_confirmations"] == []
+    assert state["cursors"]["wxid-a"] == 6
+
+
+def test_affirmative_answer_to_question_still_generates(monkeypatch, tmp_path):
+    module, _, _ = _configure(monkeypatch, tmp_path, cursor=5)
+    monkeypatch.setattr(
+        module,
+        "get_timeline",
+        lambda *_args: {
+            "messages": [
+                _message(5, True, "你开通了吗"),
+                _message(6, False, "开了"),
+            ]
+        },
+    )
+
+    result = asyncio.run(AutomationWorker(lambda: "").run_once())
+
+    assert result["actions"][-1]["action"] == "needs_confirmation"

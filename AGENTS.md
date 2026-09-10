@@ -28,6 +28,7 @@ Harness 已于 2026-08-11 按当前代码状态复核；优先相信 `docs/harne
 | langgraph-multi-agent | `docs/superpowers/specs/2026-08-09-langgraph-multi-agent-design.md` | 修改 `app/agent/` 角色图、trace、审核重写边 |
 | wechat-local-auto-reply | `skill/wechat-local-auto-reply/SKILL.md` | 修改微信本地读取、蒸馏、群聊触发、监听、dry-run、游标、自动发送链路或 LangSmith 追踪隔离 |
 | girls-chat-expression-style | `skill/girls-chat-expression-style/SKILL.md` | 应用基于聊天记录蒸馏出的表达类型风格到新用户或新对话 |
+| mattpocock-skills | `skills/<skill-name>/SKILL.md` | 通用工程流程（需求澄清、规格化、TDD、代码评审、领域建模等） |
 
 ## Agent 入口
 

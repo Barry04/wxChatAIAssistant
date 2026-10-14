@@ -12,7 +12,18 @@
 > [!IMPORTANT]
 > **默认不发送任何消息。** 自动回复默认关闭、默认 dry-run、默认仅 L0、默认空白名单；L1/L2 必须人工逐条确认，L3 直接拦截。真实发送只由**无模型的 Operator** 执行，且必须持有用户已批准的原文。
 
+## 🖼 工作台预览
+
+[![关系助手工作台：左侧选择联系人，中间输入对话，右侧查看理解、风格、写手与审核过程](docs/images/agent-flow-workspace.png)](docs/images/agent-flow-workspace.png)
+
+*按联系人组织对话，在同一工作台查看草稿生成过程。点击图片可查看原图。*
+
+<details>
+<summary>▶ 查看 Agent 流转动画</summary>
+
 ![关系助手：Agent 流转图动态演示](docs/images/agent-flow-demo.gif)
+
+</details>
 
 ## ✨ 功能亮点
 
@@ -29,31 +40,9 @@
 
 单仓库架构：Python 后端读取本机微信数据库、蒸馏个人表达、监听白名单新消息；React 工作台负责配置、分析与 dry-run 事件查看。
 
-```mermaid
-flowchart TB
-    Browser["浏览器 · React 工作台"] -->|"HTTP 127.0.0.1:8787"| API["FastAPI · app/main.py"]
-    WeChat["本机微信数据库"] --> Reader["wechat-cli 桥接读取"]
-    Reader --> API
-    API --> Service["业务服务 · app/services.py"]
-    API --> DraftAgent["DraftAgent · app/agent"]
+[![微信助手流程图：自动监听与手动生成进入四角色草稿图，自动化草稿经策略门分流为自动批准、人工确认或拦截，批准原文交给无模型 Operator](docs/images/architecture-flow.svg)](docs/images/architecture-flow.svg)
 
-    subgraph Draft["草稿生成 · 多角色 LangGraph"]
-        U["understand 场景与风险"] --> S["style 关系 · 风格 · 样本"]
-        S --> W["writer 生成候选"]
-        W --> R["reviewer 安全与质量审核"]
-    end
-    Provider[("模型 · demo / Ollama / OpenAI 兼容")] --> W
-
-    API --> Worker["编排入口 · app/automation.py"]
-    Worker --> Orch["Orchestrator"]
-    Orch --> Watch["Watcher · 白名单监听"]
-    Orch --> Policy["PolicyGate · 策略门"]
-    Orch --> DraftAgent
-    Policy -->|"auto_send"| Op["Operator · 无模型发送"]
-    Policy -->|"needs_confirmation"| Confirm["待确认回复中心"]
-    Policy -->|"blocked"| Block["拦截"]
-    Op --> UI["微信 UI 受控发送 · OCR 会话校验"]
-```
+*绿色表示批准后的发送路径，琥珀色表示人工确认，红色表示拦截；虚线表示反馈或返回路径。手动生成只返回草稿。点击可放大。*
 
 要点：
 

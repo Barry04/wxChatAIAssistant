@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="1120" viewBox="0 0 1040 1120" role="img" aria-labelledby="title desc">
+  <title id="title">微信助手 · 从对话到回复</title>
+  <desc id="desc">自动化由 Orchestrator 调度：读取微信、同步记忆、生成草稿、通过策略门后交给 Operator 或人工确认。手动生成只返回草稿。DraftAgent 包含理解、风格、写手与审核；L3 短路，审核可重写一次或拦截。Operator 无模型，只执行批准原文。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10Z" fill="#68796e"/></marker>
+    <marker id="green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#23734d"/></marker>
+    <marker id="amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#956116"/></marker>
+    <marker id="red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#ae4545"/></marker>
+    <style>
+      text{font-family:"Microsoft YaHei","PingFang SC","Noto Sans CJK SC",sans-serif;fill:#20382b}
+      .heading{font-size:23px;font-weight:700}.body{font-size:18px}.small{font-size:16px;fill:#52665a}
+      .label{font-size:15px;font-weight:700;letter-spacing:1px;fill:#52665a}
+      .line{fill:none;stroke:#68796e;stroke-width:2;marker-end:url(#arrow)}
+      .approved{fill:none;stroke:#23734d;stroke-width:2;marker-end:url(#green)}
+      .confirm{fill:none;stroke:#956116;stroke-width:2;marker-end:url(#amber)}
+      .blocked{fill:none;stroke:#ae4545;stroke-width:2;marker-end:url(#red)}
+      .dash{stroke-dasharray:6 5}
+    </style>
+  </defs>
+  <rect width="1040" height="1120" rx="24" fill="#f5f7f2"/>
+  <rect x="32" y="34" width="6" height="64" rx="3" fill="#81b83b"/>
+  <text x="56" y="62" font-size="30" font-weight="700">从对话到回复，每一步都看得见</text>
+  <text x="56" y="94" class="body">wxChatAIAssistant · 本地优先 · 关系与表达风格 · 受控发送</text>
+  <rect x="32" y="126" width="976" height="42" rx="10" fill="#e6efdd"/>
+  <text x="52" y="153" class="body">默认：自动回复关闭 / dry-run / 空白名单</text>
+
+  <!-- Two entry points. Manual generation returns drafts and never reaches the policy gate. -->
+  <rect x="32" y="192" width="560" height="124" rx="16" fill="#fff" stroke="#d5dfd1"/>
+  <text x="52" y="220" class="label">01 / 自动化入口 · ORCHESTRATOR 编排</text>
+  <text x="52" y="251" class="heading">微信读取 → Watcher → 记忆同步</text>
+  <text x="52" y="281" class="small">wechat-cli / 白名单与新消息检查 / Self Skill 与历史样本</text>
+  <rect x="616" y="192" width="392" height="124" rx="16" fill="#fff" stroke="#d5dfd1"/>
+  <text x="636" y="220" class="label">手动入口 · REACT → FASTAPI</text>
+  <text x="636" y="251" class="heading">粘贴对话，生成草稿</text>
+  <text x="636" y="281" class="small">POST /api/generate · 返回工作台</text>
+  <path d="M300 316V356" class="line"/>
+  <path d="M790 316V356" class="line"/>
+  <path d="M964 356V316" class="line dash"/>
+
+  <!-- DraftAgent is a single bounded graph; the rewrite edge stays inside it. -->
+  <rect x="32" y="358" width="976" height="270" rx="18" fill="#edf4e6" stroke="#b7cda8"/>
+  <text x="52" y="390" class="label">02 / DRAFTAGENT · LANGGRAPH 多角色草稿生成</text>
+  <text x="988" y="390" text-anchor="end" class="small">仅生成草稿，无发送能力</text>
+  <g fill="#fff" stroke="#c9d8bf">
+    <rect x="52" y="414" width="206" height="94" rx="12"/>
+    <rect x="296" y="414" width="206" height="94" rx="12"/>
+    <rect x="540" y="414" width="206" height="94" rx="12"/>
+    <rect x="784" y="414" width="204" height="94" rx="12"/>
+  </g>
+  <text x="70" y="446" class="heading">理解 understand</text>
+  <text x="70" y="478" class="small">场景、意图与风险</text>
+  <text x="314" y="446" class="heading">风格 style</text>
+  <text x="314" y="478" class="small">关系、画像与样本</text>
+  <text x="558" y="446" class="heading">写手 writer</text>
+  <text x="558" y="478" class="small">结合上下文生成候选</text>
+  <text x="802" y="446" class="heading">审核 reviewer</text>
+  <text x="802" y="478" class="small">安全与质量检查</text>
+  <path d="M258 461H291" class="line"/><path d="M502 461H535" class="line"/><path d="M746 461H779" class="line"/>
+  <path d="M886 508V543H643V513" class="line dash"/>
+  <text x="765" y="566" text-anchor="middle" class="small">revise · 最多重写 1 次</text>
+  <text x="52" y="548" class="small">模型：demo / Ollama / OpenAI 兼容</text>
+  <rect x="52" y="580" width="936" height="30" rx="7" fill="#fff"/>
+  <text x="68" y="601" class="small">L3 在理解后短路；审核可拦截候选。手动请求到此返回，自动化结果继续进入策略门。</text>
+
+  <path d="M520 628V674" class="line"/>
+  <rect x="552" y="636" width="170" height="26" fill="#f5f7f2"/>
+  <text x="564" y="655" class="small">仅自动化链路</text>
+  <rect x="176" y="676" width="688" height="84" rx="16" fill="#20382b"/>
+  <text x="520" y="708" text-anchor="middle" style="fill:#fff" class="heading">03 / PolicyGate · 代码策略门</text>
+  <text x="520" y="737" text-anchor="middle" style="fill:#d9e8d3" class="small">检查风险、运行模式、模型回退与真实发送授权</text>
+
+  <path d="M300 760V786H184V812" class="approved"/>
+  <path d="M520 760V812" class="confirm"/>
+  <path d="M740 760V786H856V812" class="blocked"/>
+  <rect x="32" y="814" width="304" height="96" rx="14" fill="#e6f1e7" stroke="#a9c8ae"/>
+  <rect x="368" y="814" width="304" height="96" rx="14" fill="#fff3da" stroke="#e1c48c"/>
+  <rect x="704" y="814" width="304" height="96" rx="14" fill="#fbeaea" stroke="#dfb2b2"/>
+  <text x="52" y="845" class="heading">策略批准</text>
+  <text x="52" y="873" class="small">auto_send · 所有发送条件满足</text>
+  <text x="388" y="845" class="heading">待人工确认</text>
+  <text x="388" y="873" class="small">needs_confirmation · 确认或放弃</text>
+  <text x="724" y="845" class="heading">拦截</text>
+  <text x="724" y="873" class="small">blocked · 不交给发送执行器</text>
+  <path d="M184 910V974" class="approved"/>
+  <path d="M520 910V974" class="confirm"/>
+  <text x="536" y="949" class="small">仅用户确认后</text>
+  <rect x="32" y="976" width="640" height="106" rx="16" fill="#fff" stroke="#a9c8ae"/>
+  <text x="52" y="1010" class="heading">04 / Operator · 无模型发送执行器</text>
+  <text x="52" y="1040" class="body">批准原文 → 会话校验 → 微信 UI 发送 → 时间线验证</text>
+  <text x="52" y="1066" class="small">只执行已批准的文本，不调用模型改写</text>
+  <text x="724" y="1014" class="body">生成与发送分离</text>
+  <text x="724" y="1044" class="small">候选草稿 ≠ 发送授权</text>
+  <text x="724" y="1074" class="small">未通过策略门，不自动发送</text>
+</svg>
